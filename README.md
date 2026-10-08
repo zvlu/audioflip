@@ -66,7 +66,7 @@ The interface also exposes invalid/oversize/decode failure states and defensivel
 
 ## Rust/WASM status
 
-**Rust/WASM is not used in this version.** Phase 2 deliberately delivered core editor hardening only; there is no Rust crate, generated WASM asset, worker, or runtime WASM path. TypeScript owns trim/rate validation, finite peak measurement, shared-channel gain, sample sanitation, and PCM encoding. A later Rust DSP module can replace bounded post-render PCM work only after it is compiled to WASM, imported into `src/audio/engine.ts`, and exercised in a real browser render. Reverb, filters, rate conversion, preview, decode, and render graph should remain browser Web Audio responsibilities.
+**Rust/WASM is not used in this version.** A fresh active-Sandbox gate on 2026-10-08 found `rustc`, Cargo, rustup, installed WASM targets, `wasm-pack`, `wasm-bindgen`, and `wasm-opt` all missing. No installation was attempted: this pass has no ready Rust build path or technically enforceable per-run budget cap. There is no Rust crate, generated WASM asset, worker, or runtime WASM path. TypeScript owns trim/rate validation, finite peak measurement, shared-channel gain, sample sanitation, and PCM encoding. The exact gate record is in [RUST_WASM_GATE_RECORD.md](RUST_WASM_GATE_RECORD.md). A later Rust DSP module can replace bounded post-render PCM work only after it is compiled to WASM, imported into `src/audio/engine.ts`, and exercised in a real browser render. Reverb, filters, rate conversion, preview, decode, and render graph should remain browser Web Audio responsibilities.
 
 ## Deferred features and proposed billing
 

@@ -69,3 +69,8 @@ The project will not use stock imagery, generated marketing visuals, copyrighted
 The editor will keep its browser-local React/Web Audio architecture and visual language. Phase 2 adds a small portal-style accessible Creator modal component rather than a UI library, with focus entry, Tab/Shift+Tab containment, Escape/backdrop close, background inerting/scroll lock, and trigger-focus restoration. `App.tsx` will gain explicit clip clearing and job/playback identity guards so late decode/render completion cannot overwrite a clear, reset, newer source, or unmount.
 
 The decorative bar field will become a labeled playback-progress indicator, explicitly not a waveform. The Web Audio engine will validate source metadata, effect settings, trim/rate values, output duration, and offline allocation bounds at the render boundary; it will preserve TypeScript peak-derived shared-channel gain and PCM16 WAV output. The WAV encoder will reject unsafe metadata/allocation requests rather than silently coercing them. New deterministic tests cover validation, allocation/format safety, finite sample behavior, and keyboard modal focus behavior; browser checks will exercise the actual editor loop and cleanup behavior.
+
+
+## Rust/WASM gate disposition — 2026-10-08
+
+A fresh active-Sandbox check found no `rustc`, Cargo, rustup, installed WASM target, `wasm-pack`, `wasm-bindgen`, or `wasm-opt`. The user supplied an implementation maximum, but the runtime provides no native per-run spending cap and does not expose verified account/project consumption. Under the one-path/no-toolchain-fight constraint, no Rust installation was attempted. The reliable TypeScript DSP path remains the shipped implementation; no worker or WASM runtime path was added.
