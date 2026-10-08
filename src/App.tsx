@@ -1,4 +1,5 @@
-import { type ChangeEvent, type DragEvent, useEffect, useRef, useState } from 'react';
+import { type ChangeEvent, type DragEvent, useCallback, useEffect, useRef, useState } from 'react';
+import { CreatorModal } from './components/CreatorModal';
 import { createDemoBuffer } from './audio/demo';
 import {
   activeRate,
@@ -11,7 +12,7 @@ import {
   renderEffect,
   type PlaybackHandle,
 } from './audio/engine';
-import { clamp, formatTime, validateTrim } from './audio/math';
+import { formatAttenuationPercent, formatTime, outputDuration, validateTrim } from './audio/math';
 import { NEUTRAL_SETTINGS, settingsForEffect } from './audio/presets';
 import { encodePcm16Wav } from './audio/wav';
 import { MAX_DURATION_SECONDS, MAX_FILE_BYTES } from './audio/types';
@@ -34,7 +35,7 @@ type Rendered = {
 type PlaybackKind = 'original' | 'processed' | null;
 
 const effectCards: Array<{ id: EffectId; name: string; eyebrow: string; detail: string }> = [
-  { id: 'original', name: 'Original', eyebrow: 'COMPARE', detail: 'Trimmed, unchanged source.' },
+  { id: 'original', name: 'Original', eyebrow: 'COMPARE', detail: 'Trimmed source comparison.' },
   { id: 'slowed', name: 'Slowed + reverb', eyebrow: '0.80× + SPACE', detail: 'Lower, longer, lightly washed.' },
   { id: 'sped', name: 'Sped up', eyebrow: '1.25×', detail: 'Fast, dry, direct.' },
   { id: 'nightcore', name: 'Nightcore-style', eyebrow: '1.35× + BRIGHT', detail: 'Coupled faster pitch and sparkle.' },
@@ -51,6 +52,9 @@ export default function App() {
   const progressTimerRef = useRef<number | null>(null);
   const renderedUrlRef = useRef<string | null>(null);
   const workVersionRef = useRef(0);
+  const playbackVersionRef = useRef(0);
+  const mountedRef = useRef(false);
+  const creatorTriggerRef = useRef<HTMLButtonElement>(null);
 
   const [clip, setClip] = useState<Clip | null>(null);
   const [trim, setTrim] = useState<TrimRange>({ start: 0, end: 0 });
@@ -67,21 +71,31 @@ export default function App() {
   const [creatorOpen, setCreatorOpen] = useState(false);
 
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
-      stopPlayback();
+      mountedRef.current = false;
+      workVersionRef.current += 1;
+      playbackVersionRef.current += 1;
+      clearTimer();
+      playbackRef.current?.stop();
+      playbackRef.current = null;
       if (renderedUrlRef.current) URL.revokeObjectURL(renderedUrlRef.current);
-      void contextRef.current?.close();
+      renderedUrlRef.current = null;
+      const context = contextRef.current;
+      contextRef.current = null;
+      if (context && context.state !== 'closed') void context.close();
     };
   }, []);
 
   function getContext(): AudioContext {
-    if (!contextRef.current) contextRef.current = getAudioContext();
+    if (!contextRef.current || contextRef.current.state === 'closed') contextRef.current = getAudioContext();
     return contextRef.current;
   }
 
   async function activateAudio(): Promise<AudioContext> {
     const context = getContext();
     await enableAudio(context);
+    if (!mountedRef.current) throw new Error('AudioFlip closed before audio could start.');
     setAudioEnabled(true);
     return context;
   }
@@ -94,25 +108,33 @@ export default function App() {
   }
 
   function stopPlayback(): void {
+    playbackVersionRef.current += 1;
     clearTimer();
     playbackRef.current?.stop();
     playbackRef.current = null;
-    setPlaying(null);
-    setPlayProgress(0);
+    if (mountedRef.current) {
+      setPlaying(null);
+      setPlayProgress(0);
+    }
   }
 
-  function finishPlayback(): void {
+  function finishPlayback(version: number): void {
+    if (!mountedRef.current || version !== playbackVersionRef.current) return;
     clearTimer();
     playbackRef.current = null;
     setPlaying(null);
     setPlayProgress(0);
   }
 
-  function startProgress(kind: Exclude<PlaybackKind, null>, duration: number): void {
+  function startProgress(kind: Exclude<PlaybackKind, null>, duration: number, version: number): void {
     const started = performance.now();
     setPlaying(kind);
     setPlayProgress(0);
     progressTimerRef.current = window.setInterval(() => {
+      if (!mountedRef.current || version !== playbackVersionRef.current) {
+        clearTimer();
+        return;
+      }
       setPlayProgress(Math.min(1, (performance.now() - started) / (duration * 1000)));
     }, 40);
   }
@@ -120,14 +142,19 @@ export default function App() {
   function discardRender(): void {
     if (renderedUrlRef.current) URL.revokeObjectURL(renderedUrlRef.current);
     renderedUrlRef.current = null;
-    setRendered(null);
+    if (mountedRef.current) setRendered(null);
+  }
+
+  function invalidateWork(): number {
+    workVersionRef.current += 1;
+    return workVersionRef.current;
   }
 
   function startSourceWork(): number {
-    workVersionRef.current += 1;
+    const version = invalidateWork();
     stopPlayback();
     setIsRendering(false);
-    return workVersionRef.current;
+    return version;
   }
 
   function applyLoadedClip(nextClip: Clip): void {
@@ -140,6 +167,20 @@ export default function App() {
     setNotice(`${nextClip.name} is ready. Pick a flip, trim it, then render.`);
   }
 
+  function clearClip(): void {
+    invalidateWork();
+    stopPlayback();
+    discardRender();
+    setClip(null);
+    setTrim({ start: 0, end: 0 });
+    setSettings(NEUTRAL_SETTINGS);
+    setIsLoading(false);
+    setIsRendering(false);
+    setError(null);
+    setDragging(false);
+    setNotice('Clip cleared. Choose the demo or an audio file to begin again.');
+  }
+
   async function useDemo(): Promise<void> {
     const version = startSourceWork();
     setIsLoading(true);
@@ -148,19 +189,23 @@ export default function App() {
       const context = getContext();
       if (context.state === 'running') setAudioEnabled(true);
       const buffer = createDemoBuffer(context);
-      if (version !== workVersionRef.current) return;
+      if (version !== workVersionRef.current || !mountedRef.current) return;
       applyLoadedClip({ buffer, name: 'AudioFlip original demo', origin: 'demo' });
     } catch {
-      if (version === workVersionRef.current) {
-        setError('Audio could not be enabled. Tap again and allow sound for this page.');
+      if (version === workVersionRef.current && mountedRef.current) {
+        setError('The local demo could not be prepared. Tap again or use a WAV/MP3 file.');
       }
     } finally {
-      if (version === workVersionRef.current) setIsLoading(false);
+      if (version === workVersionRef.current && mountedRef.current) setIsLoading(false);
     }
   }
 
   async function selectFile(file: File | undefined): Promise<void> {
     if (!file) return;
+    if (file.size <= 0) {
+      setError(`“${file.name || 'This file'}” is empty. Choose a WAV or MP3 with audio data.`);
+      return;
+    }
     if (file.size > MAX_FILE_BYTES) {
       setError(`“${file.name}” is too large. AudioFlip accepts clips up to ${fileMegabytes()}.`);
       return;
@@ -172,17 +217,17 @@ export default function App() {
     try {
       const context = await activateAudio();
       const buffer = await decodeLocalFile(file, context);
-      if (version !== workVersionRef.current) return;
+      if (version !== workVersionRef.current || !mountedRef.current) return;
       if (buffer.duration > MAX_DURATION_SECONDS) {
         throw new Error(`This clip is ${formatTime(buffer.duration)} long. Keep source clips to ${MAX_DURATION_SECONDS} seconds or less.`);
       }
       applyLoadedClip({ buffer, name: file.name, origin: 'local' });
     } catch (reason) {
-      if (version === workVersionRef.current) {
+      if (version === workVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'This file could not be loaded.');
       }
     } finally {
-      if (version === workVersionRef.current) setIsLoading(false);
+      if (version === workVersionRef.current && mountedRef.current) setIsLoading(false);
     }
   }
 
@@ -202,6 +247,7 @@ export default function App() {
   }
 
   function chooseEffect(effect: EffectId): void {
+    invalidateWork();
     stopPlayback();
     discardRender();
     setSettings(settingsForEffect(effect));
@@ -209,6 +255,7 @@ export default function App() {
   }
 
   function updateSetting(patch: Partial<EffectSettings>): void {
+    invalidateWork();
     stopPlayback();
     discardRender();
     setSettings((previous) => ({ ...previous, ...patch }));
@@ -217,19 +264,19 @@ export default function App() {
 
   function updateTrim(part: keyof TrimRange, rawValue: number): void {
     if (!clip) return;
+    invalidateWork();
     stopPlayback();
     discardRender();
     setTrim((current) => {
       const smallestGap = Math.min(0.01, clip.buffer.duration / 100);
-      if (part === 'start') {
-        return { ...current, start: clamp(rawValue, 0, Math.max(0, current.end - smallestGap)) };
-      }
-      return { ...current, end: clamp(rawValue, Math.min(clip.buffer.duration, current.start + smallestGap), clip.buffer.duration) };
+      if (part === 'start') return { ...current, start: Math.min(Math.max(rawValue, 0), Math.max(0, current.end - smallestGap)) };
+      return { ...current, end: Math.min(Math.max(rawValue, Math.min(clip.buffer.duration, current.start + smallestGap)), clip.buffer.duration) };
     });
   }
 
   function resetEditor(): void {
     if (!clip) return;
+    invalidateWork();
     stopPlayback();
     discardRender();
     setTrim({ start: 0, end: clip.buffer.duration });
@@ -244,41 +291,51 @@ export default function App() {
       stopPlayback();
       return;
     }
+    const source = clip.buffer;
+    const trimSnapshot = { ...trim };
+    stopPlayback();
+    const playbackVersion = ++playbackVersionRef.current;
     setError(null);
     try {
-      stopPlayback();
       const context = await activateAudio();
-      playbackRef.current = playSourceRange(context, clip.buffer, trim, finishPlayback);
-      startProgress('original', trim.end - trim.start);
+      if (playbackVersion !== playbackVersionRef.current || !mountedRef.current) return;
+      playbackRef.current = playSourceRange(context, source, trimSnapshot, () => finishPlayback(playbackVersion));
+      startProgress('original', trimSnapshot.end - trimSnapshot.start, playbackVersion);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Original preview could not start.');
+      if (playbackVersion === playbackVersionRef.current && mountedRef.current) {
+        setError(reason instanceof Error ? reason.message : 'Original preview could not start.');
+      }
     }
   }
 
   async function render(): Promise<void> {
     if (!clip) return;
-    const trimError = validateTrim(trim, clip.buffer.duration);
+    const source = clip.buffer;
+    const trimSnapshot = { ...trim };
+    const settingsSnapshot = { ...settings };
+    const trimError = validateTrim(trimSnapshot, source.duration);
     if (trimError) {
       setError(trimError);
       return;
     }
+
     stopPlayback();
-    workVersionRef.current += 1;
-    const version = workVersionRef.current;
+    const version = invalidateWork();
     setIsRendering(true);
     setError(null);
     setNotice('Rendering locally on this device…');
     try {
-      const result = await renderEffect(clip.buffer, trim, settings);
-      if (version !== workVersionRef.current) return;
+      const result = await renderEffect(source, trimSnapshot, settingsSnapshot);
+      if (version !== workVersionRef.current || !mountedRef.current) return;
       const blob = encodePcm16Wav(result.buffer);
+      if (version !== workVersionRef.current || !mountedRef.current) return;
       const url = URL.createObjectURL(blob);
       discardRender();
       renderedUrlRef.current = url;
       const nextRendered: Rendered = {
         buffer: result.buffer,
         url,
-        filename: `audioflip-${effectLabel(settings.effect)}.wav`,
+        filename: `audioflip-${effectLabel(settingsSnapshot.effect)}.wav`,
         peak: result.peak,
         guardGain: result.guardGain,
       };
@@ -286,12 +343,12 @@ export default function App() {
       const guardNote = result.guardGain < 1 ? ' Peak guard reduced output safely.' : ' Peak guard found safe headroom.';
       setNotice(`Rendered ${formatTime(result.duration)} of 16-bit PCM WAV at ${(result.buffer.sampleRate / 1000).toFixed(1)} kHz.${guardNote}`);
     } catch (reason) {
-      if (version === workVersionRef.current) {
+      if (version === workVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'Rendering failed. Try a shorter clip or another browser-supported format.');
         setNotice('No download was created. Your original source is unchanged.');
       }
     } finally {
-      if (version === workVersionRef.current) setIsRendering(false);
+      if (version === workVersionRef.current && mountedRef.current) setIsRendering(false);
     }
   }
 
@@ -301,14 +358,19 @@ export default function App() {
       stopPlayback();
       return;
     }
+    const renderedSnapshot = rendered.buffer;
+    stopPlayback();
+    const playbackVersion = ++playbackVersionRef.current;
     setError(null);
     try {
-      stopPlayback();
       const context = await activateAudio();
-      playbackRef.current = playRenderedBuffer(context, rendered.buffer, finishPlayback);
-      startProgress('processed', rendered.buffer.duration);
+      if (playbackVersion !== playbackVersionRef.current || !mountedRef.current) return;
+      playbackRef.current = playRenderedBuffer(context, renderedSnapshot, () => finishPlayback(playbackVersion));
+      startProgress('processed', renderedSnapshot.duration, playbackVersion);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Processed preview could not start.');
+      if (playbackVersion === playbackVersionRef.current && mountedRef.current) {
+        setError(reason instanceof Error ? reason.message : 'Processed preview could not start.');
+      }
     }
   }
 
@@ -323,219 +385,216 @@ export default function App() {
     setNotice(`${rendered.filename} download started. Import the audio into your video editor, then follow that platform’s music and format rules.`);
   }
 
+  const closeCreatorModal = useCallback(() => setCreatorOpen(false), []);
   const selectedCard = effectCards.find((card) => card.id === settings.effect);
   const trimLength = Math.max(0, trim.end - trim.start);
-  const estimatedDuration = settings.effect === 'slowed' && settings.reverbMix > 0
-    ? trimLength / activeRate(settings) + 1.2
-    : trimLength / activeRate(settings);
+  const estimatedDuration = outputDuration(trim, activeRate(settings), settings.effect === 'slowed' && settings.reverbMix > 0 ? 1.2 : 0);
+  const progressPercent = Math.round(Math.min(1, Math.max(0, playProgress)) * 100);
 
   return (
-    <main>
-      <section className="hero shell" aria-labelledby="page-title">
-        <div className="brand-row">
-          <a className="wordmark" href="#top" aria-label="AudioFlip home">
-            <span className="mark" aria-hidden="true"><i /><i /><i /></span>
-            AUDIO<span>FLIP</span>
-          </a>
-          <span className="local-pill">LOCAL ONLY</span>
-        </div>
-        <div className="hero-copy" id="top">
-          <p className="eyebrow">MUSIC, FLIPPED YOUR WAY</p>
-          <h1 id="page-title">Flip your sound<br /><em>in a few taps.</em></h1>
-          <p className="lede">Turn your own clip into a slowed, sped-up, nightcore-style, or bass-boosted version—right in your browser.</p>
-        </div>
-        <div className="hero-actions">
-          <button className="button primary" onClick={() => void useDemo()} disabled={isLoading || isRendering}>
-            <span aria-hidden="true">▶</span> Try the demo
-          </button>
-          <label className="button secondary file-button">
-            <span aria-hidden="true">＋</span> Choose audio
-            <input type="file" accept="audio/wav,audio/mpeg,audio/*" onChange={onFileChange} disabled={isLoading || isRendering} />
-          </label>
-        </div>
-        <p className="limits">WAV and MP3 first · up to {fileMegabytes()} · up to {MAX_DURATION_SECONDS} seconds · processed on this device</p>
-      </section>
-
-      <section className="shell editor-section" aria-labelledby="editor-title">
-        <div className="section-heading">
-          <p className="eyebrow">01 / SOUND LAB</p>
-          <h2 id="editor-title">Make a clean flip.</h2>
-          <p>Rates change pitch and duration together. There is no independent pitch shift or time stretching.</p>
-        </div>
-
-        <div
-          className={`drop-zone ${dragging ? 'dragging' : ''} ${isLoading || isRendering ? 'busy' : ''}`}
-          onDragEnter={(event) => { event.preventDefault(); setDragging(!(isLoading || isRendering)); }}
-          onDragOver={(event) => event.preventDefault()}
-          onDragLeave={() => setDragging(false)}
-          onDrop={onDrop}
-          aria-disabled={isLoading || isRendering}
-        >
-          <div className="source-meta">
-            <span className="source-icon" aria-hidden="true">♫</span>
-            <div>
-              <strong>{clip?.name ?? 'No source loaded'}</strong>
-              <span>{clip ? `${clip.origin === 'demo' ? 'Original demo' : 'Local file'} · ${formatTime(clip.buffer.duration)}` : 'Drop a file here on desktop, or choose audio above.'}</span>
-            </div>
+    <>
+      <main>
+        <section className="hero shell" aria-labelledby="page-title">
+          <div className="brand-row">
+            <a className="wordmark" href="#top" aria-label="AudioFlip home">
+              <span className="mark" aria-hidden="true"><i /><i /><i /></span>
+              AUDIO<span>FLIP</span>
+            </a>
+            <span className="local-pill">LOCAL ONLY</span>
           </div>
-          {clip && <span className="ready-chip">READY</span>}
-        </div>
+          <div className="hero-copy" id="top">
+            <p className="eyebrow">MUSIC, FLIPPED YOUR WAY</p>
+            <h1 id="page-title">Flip your sound<br /><em>in a few taps.</em></h1>
+            <p className="lede">Turn your own clip into a slowed, sped-up, nightcore-style, or bass-boosted version—right in your browser.</p>
+          </div>
+          <div className="hero-actions">
+            <button className="button primary" type="button" onClick={() => void useDemo()} disabled={isLoading || isRendering}>
+              <span aria-hidden="true">▶</span> Try the demo
+            </button>
+            <label className="button secondary file-button">
+              <span aria-hidden="true">＋</span> Choose audio
+              <input type="file" accept="audio/wav,audio/mpeg,audio/*" onChange={onFileChange} disabled={isLoading || isRendering} />
+            </label>
+          </div>
+          <p className="limits">WAV and MP3 first · up to {fileMegabytes()} · up to {MAX_DURATION_SECONDS} seconds · processed on this device</p>
+        </section>
 
-        {!audioEnabled && <div className="audio-hint">Tap a preview or demo button to enable audio in your browser.</div>}
-        {error && <div className="message error" role="alert">{error}</div>}
-        <div className="message status" aria-live="polite">{isLoading ? 'Decoding your file locally…' : isRendering ? 'Processing your selected effect locally…' : notice}</div>
-
-        <div className={`editor-card ${clip ? '' : 'muted'}`}>
-          <div className="card-topline">
-            <div>
-              <p className="eyebrow">02 / TRIM SOURCE</p>
-              <h3>Keep the good part.</h3>
-            </div>
-            <button className="text-button" disabled={!clip || isLoading || isRendering} onClick={resetEditor}>Reset neutral</button>
+        <section className="shell editor-section" aria-labelledby="editor-title">
+          <div className="section-heading">
+            <p className="eyebrow">01 / SOUND LAB</p>
+            <h2 id="editor-title">Make a clean flip.</h2>
+            <p>Rates change pitch and duration together. There is no independent pitch shift or time stretching.</p>
           </div>
 
-          <div className="preview-strip" aria-label="Trimmed original preview">
-            <div className="playback-wave" aria-hidden="true">
-              {Array.from({ length: 34 }, (_, index) => <span key={index} style={{ height: `${20 + ((index * 19) % 62)}%` }} />)}
-              <b style={{ transform: `scaleX(${playing === 'original' ? playProgress : 0})` }} />
+          <div
+            className={`drop-zone ${dragging ? 'dragging' : ''} ${isLoading || isRendering ? 'busy' : ''}`}
+            onDragEnter={(event) => { event.preventDefault(); setDragging(!(isLoading || isRendering)); }}
+            onDragOver={(event) => event.preventDefault()}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            aria-disabled={isLoading || isRendering}
+          >
+            <div className="source-meta">
+              <span className="source-icon" aria-hidden="true">♫</span>
+              <div>
+                <strong>{clip?.name ?? 'No source loaded'}</strong>
+                <span>{clip ? `${clip.origin === 'demo' ? 'Original demo' : 'Local file'} · ${formatTime(clip.buffer.duration)}` : 'Drop a file here on desktop, or choose audio above.'}</span>
+              </div>
             </div>
-            <button className="play-button" disabled={!clip || isLoading || isRendering} onClick={() => void playOriginal()}>
-              {playing === 'original' ? 'Stop original' : 'Play original'}
+            {clip && <span className="ready-chip">READY</span>}
+          </div>
+
+          {!audioEnabled && <div className="audio-hint">Tap a preview button to enable audio in your browser. Loading the demo does not promise audible playback until your browser allows it.</div>}
+          {error && <div className="message error" role="alert">{error}</div>}
+          <div className="message status" aria-live="polite">{isLoading ? 'Loading your audio locally…' : isRendering ? 'Processing your selected effect locally…' : notice}</div>
+
+          <div className={`editor-card ${clip ? '' : 'muted'}`}>
+            <div className="card-topline">
+              <div>
+                <p className="eyebrow">02 / TRIM SOURCE</p>
+                <h3>Keep the good part.</h3>
+              </div>
+              <div className="editor-actions">
+                <button className="text-button" type="button" disabled={!clip || isLoading || isRendering} onClick={resetEditor}>Reset neutral</button>
+                <button className="text-button danger-text" type="button" disabled={!clip} onClick={clearClip}>Clear clip</button>
+              </div>
+            </div>
+
+            <div className="preview-strip" aria-label="Original preview playback progress">
+              <div className="progress-stack">
+                <div className="playback-progress" role="progressbar" aria-label="Original preview playback progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={playing === 'original' ? progressPercent : 0}>
+                  <b style={{ transform: `scaleX(${playing === 'original' ? playProgress : 0})` }} />
+                </div>
+                <span className="progress-caption">Playback progress only—not an analyzed waveform.</span>
+              </div>
+              <button className="play-button" type="button" disabled={!clip || isLoading || isRendering} onClick={() => void playOriginal()}>
+                {playing === 'original' ? 'Stop original' : 'Play original'}
+              </button>
+            </div>
+
+            <div className="trim-controls">
+              <label>
+                <span>Start <b>{formatTime(trim.start)}</b></span>
+                <input aria-label="Trim start" type="range" min="0" max={clip?.buffer.duration ?? 1} step="0.01" value={trim.start} disabled={!clip || isLoading || isRendering} onChange={(event) => updateTrim('start', Number(event.target.value))} />
+              </label>
+              <label>
+                <span>End <b>{formatTime(trim.end)}</b></span>
+                <input aria-label="Trim end" type="range" min="0" max={clip?.buffer.duration ?? 1} step="0.01" value={trim.end} disabled={!clip || isLoading || isRendering} onChange={(event) => updateTrim('end', Number(event.target.value))} />
+              </label>
+              <div className="trim-readout"><span>Selected</span><strong>{formatTime(trimLength)}</strong></div>
+            </div>
+          </div>
+
+          <div className={`effects-area ${clip ? '' : 'muted'}`}>
+            <div className="card-topline effects-title">
+              <div>
+                <p className="eyebrow">03 / PICK A FLIP</p>
+                <h3>Choose your version.</h3>
+              </div>
+              <span className="effect-count">{selectedCard?.name}</span>
+            </div>
+            <div className="effect-list" role="list" aria-label="Audio effects">
+              {effectCards.map((card) => (
+                <button
+                  key={card.id}
+                  className={`effect-card ${settings.effect === card.id ? 'selected' : ''}`}
+                  type="button"
+                  onClick={() => chooseEffect(card.id)}
+                  disabled={!clip || isLoading || isRendering}
+                  aria-pressed={settings.effect === card.id}
+                >
+                  <span className="effect-index">{card.eyebrow}</span>
+                  <strong>{card.name}</strong>
+                  <small>{card.detail}</small>
+                  <span className="select-dot" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
+
+            <div className="control-panel">
+              {settings.effect === 'original' && <p className="control-copy">Original exports the trimmed source as a newly encoded PCM WAV. Peak protection may attenuate it, so it is not bit-identical or loudness-matched to the source.</p>}
+              {(settings.effect === 'slowed' || settings.effect === 'sped' || settings.effect === 'nightcore') && (
+                <label className="range-label">
+                  <span>Playback speed <b>{settings.rate.toFixed(2)}×</b></span>
+                  <input type="range" min={settings.effect === 'slowed' ? '0.65' : settings.effect === 'sped' ? '1' : '1.1'} max={settings.effect === 'slowed' ? '1' : settings.effect === 'sped' ? '1.5' : '1.6'} step="0.01" value={settings.rate} onChange={(event) => updateSetting({ rate: Number(event.target.value) })} disabled={!clip || isLoading || isRendering} />
+                </label>
+              )}
+              {settings.effect === 'slowed' && (
+                <label className="range-label">
+                  <span>Reverb wet mix <b>{Math.round(settings.reverbMix * 100)}%</b></span>
+                  <input type="range" min="0" max="0.4" step="0.01" value={settings.reverbMix} onChange={(event) => updateSetting({ reverbMix: Number(event.target.value) })} disabled={!clip || isLoading || isRendering} />
+                </label>
+              )}
+              {settings.effect === 'nightcore' && (
+                <label className="check-label"><input type="checkbox" checked={settings.brightness} onChange={(event) => updateSetting({ brightness: event.target.checked })} disabled={!clip || isLoading || isRendering} /> Modest brightness filter <span>Optional sparkle</span></label>
+              )}
+              {settings.effect === 'bass' && (
+                <label className="range-label">
+                  <span>Bass at 120 Hz <b>+{settings.bassGain.toFixed(0)} dB</b></span>
+                  <input type="range" min="0" max="12" step="1" value={settings.bassGain} onChange={(event) => updateSetting({ bassGain: Number(event.target.value) })} disabled={!clip || isLoading || isRendering} />
+                </label>
+              )}
+              {settings.effect === 'bass' && <p className="control-copy">A headroom guard protects the exported encoding. Heavy bass can still change how speakers feel—it is not distortion-free mastering.</p>}
+              <div className="output-estimate"><span>Estimated export</span><strong>{formatTime(estimatedDuration)}</strong></div>
+            </div>
+          </div>
+
+          <div className={`render-card ${clip ? '' : 'muted'}`}>
+            <div>
+              <p className="eyebrow">04 / RENDER &amp; KEEP</p>
+              <h3>Hear the exact WAV first.</h3>
+              <p>Same trim and effect settings for processed preview and download. Peak guard is safety, not mastering.</p>
+            </div>
+            <button className="button primary render-button" type="button" disabled={!clip || isLoading || isRendering} onClick={() => void render()}>
+              {isRendering ? 'Rendering locally…' : 'Render WAV'}
             </button>
           </div>
 
-          <div className="trim-controls">
-            <label>
-              <span>Start <b>{formatTime(trim.start)}</b></span>
-              <input aria-label="Trim start" type="range" min="0" max={clip?.buffer.duration ?? 1} step="0.01" value={trim.start} disabled={!clip || isLoading || isRendering} onChange={(event) => updateTrim('start', Number(event.target.value))} />
-            </label>
-            <label>
-              <span>End <b>{formatTime(trim.end)}</b></span>
-              <input aria-label="Trim end" type="range" min="0" max={clip?.buffer.duration ?? 1} step="0.01" value={trim.end} disabled={!clip || isLoading || isRendering} onChange={(event) => updateTrim('end', Number(event.target.value))} />
-            </label>
-            <div className="trim-readout"><span>Selected</span><strong>{formatTime(trimLength)}</strong></div>
-          </div>
-        </div>
-
-        <div className={`effects-area ${clip ? '' : 'muted'}`}>
-          <div className="card-topline effects-title">
-            <div>
-              <p className="eyebrow">03 / PICK A FLIP</p>
-              <h3>Choose your version.</h3>
+          {rendered && (
+            <div className="result-card">
+              <div className="result-copy">
+                <span className="ready-chip">RENDERED</span>
+                <h3>{rendered.filename}</h3>
+                <p>{formatTime(rendered.buffer.duration)} · {(rendered.buffer.sampleRate / 1000).toFixed(1)} kHz · PCM 16-bit WAV · {rendered.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</p>
+                {rendered.guardGain < 1 && <small>Output reduced by {formatAttenuationPercent(rendered.guardGain)} to prevent PCM clipping.</small>}
+              </div>
+              <div className="result-actions">
+                <button className="button secondary" type="button" onClick={() => void playProcessed()}>{playing === 'processed' ? 'Stop processed' : 'Play processed'}</button>
+                <button className="button lime" type="button" onClick={download}>Download WAV ↓</button>
+              </div>
             </div>
-            <span className="effect-count">{selectedCard?.name}</span>
+          )}
+        </section>
+
+        <section className="shell guide-section" aria-labelledby="guide-title">
+          <div className="section-heading">
+            <p className="eyebrow">HOW IT WORKS</p>
+            <h2 id="guide-title">From sound to screen capture.</h2>
           </div>
-          <div className="effect-list" role="list" aria-label="Audio effects">
-            {effectCards.map((card) => (
-              <button
-                key={card.id}
-                className={`effect-card ${settings.effect === card.id ? 'selected' : ''}`}
-                onClick={() => chooseEffect(card.id)}
-                disabled={!clip || isLoading || isRendering}
-                aria-pressed={settings.effect === card.id}
-              >
-                <span className="effect-index">{card.eyebrow}</span>
-                <strong>{card.name}</strong>
-                <small>{card.detail}</small>
-                <span className="select-dot" aria-hidden="true" />
-              </button>
-            ))}
+          <div className="steps">
+            <article><span>01</span><h3>Load your clip</h3><p>Use the original demo or an audio file you have rights to edit.</p></article>
+            <article><span>02</span><h3>Set the flip</h3><p>Trim first, pick a mode, and adjust only the controls that matter.</p></article>
+            <article><span>03</span><h3>Bring it to video</h3><p>Download WAV, then import it into your preferred video editor.</p></article>
           </div>
-
-          <div className="control-panel">
-            {settings.effect === 'original' && <p className="control-copy">Original exports the trimmed source as a newly encoded PCM WAV for a fair comparison.</p>}
-            {(settings.effect === 'slowed' || settings.effect === 'sped' || settings.effect === 'nightcore') && (
-              <label className="range-label">
-                <span>{settings.effect === 'slowed' ? 'Playback speed' : 'Playback speed'} <b>{settings.rate.toFixed(2)}×</b></span>
-                <input type="range" min={settings.effect === 'slowed' ? '0.65' : settings.effect === 'sped' ? '1' : '1.1'} max={settings.effect === 'slowed' ? '1' : settings.effect === 'sped' ? '1.5' : '1.6'} step="0.01" value={settings.rate} onChange={(event) => updateSetting({ rate: Number(event.target.value) })} disabled={!clip || isLoading || isRendering} />
-              </label>
-            )}
-            {settings.effect === 'slowed' && (
-              <label className="range-label">
-                <span>Reverb wet mix <b>{Math.round(settings.reverbMix * 100)}%</b></span>
-                <input type="range" min="0" max="0.4" step="0.01" value={settings.reverbMix} onChange={(event) => updateSetting({ reverbMix: Number(event.target.value) })} disabled={!clip || isLoading || isRendering} />
-              </label>
-            )}
-            {settings.effect === 'nightcore' && (
-              <label className="check-label"><input type="checkbox" checked={settings.brightness} onChange={(event) => updateSetting({ brightness: event.target.checked })} disabled={!clip || isLoading || isRendering} /> Modest brightness filter <span>Optional sparkle</span></label>
-            )}
-            {settings.effect === 'bass' && (
-              <label className="range-label">
-                <span>Bass at 120 Hz <b>+{settings.bassGain.toFixed(0)} dB</b></span>
-                <input type="range" min="0" max="12" step="1" value={settings.bassGain} onChange={(event) => updateSetting({ bassGain: Number(event.target.value) })} disabled={!clip || isLoading || isRendering} />
-              </label>
-            )}
-            {settings.effect === 'bass' && <p className="control-copy">A headroom guard protects the exported encoding. Heavy bass can still change how speakers feel—it is not distortion-free mastering.</p>}
-            <div className="output-estimate"><span>Estimated export</span><strong>{formatTime(estimatedDuration)}</strong></div>
+          <div className="two-up">
+            <aside className="info-card"><p className="eyebrow">GOOD FOR</p><h3>Before/after edits, mood changes, speed ramps, and low-end experiments.</h3><p>AudioFlip is a one-file editor—not a TikTok uploader or a finished vertical video maker.</p></aside>
+            <aside className="info-card rights"><p className="eyebrow">RIGHTS + PRIVACY</p><h3>Made on this device. Nothing uploaded.</h3><p>Only use audio you own or have permission to edit and publish. Effects do not remove copyright restrictions.</p><p>After download, follow the video platform’s format and music-rights rules.</p></aside>
           </div>
-        </div>
+        </section>
 
-        <div className={`render-card ${clip ? '' : 'muted'}`}>
-          <div>
-            <p className="eyebrow">04 / RENDER &amp; KEEP</p>
-            <h3>Hear the exact WAV first.</h3>
-            <p>Same trim and effect settings for processed preview and download. Peak guard is safety, not mastering.</p>
+        <section className="shell pricing-section" aria-labelledby="pricing-title">
+          <div className="section-heading"><p className="eyebrow">PRE-LAUNCH PRICING</p><h2 id="pricing-title">Useful now. More later.</h2></div>
+          <div className="pricing-grid">
+            <article className="plan-card"><span className="plan-tag">LIVE TODAY</span><h3>Free</h3><p className="price">$0 <small>/ month</small></p><p>Current single-clip editor, local processing, and WAV download.</p><span className="included">Included in this MVP</span></article>
+            <article className="plan-card creator"><span className="plan-tag">PROPOSED · PRE-LAUNCH</span><h3>Creator</h3><p className="price">$4.99 <small>/ month</small></p><p>Future reusable preset library, batch processing, and vertical video export.</p><button ref={creatorTriggerRef} className="text-button violet" type="button" onClick={() => setCreatorOpen(true)}>Creator plan coming soon →</button></article>
           </div>
-          <button className="button primary render-button" disabled={!clip || isLoading || isRendering} onClick={() => void render()}>
-            {isRendering ? 'Rendering locally…' : 'Render WAV'}
-          </button>
-        </div>
+          <p className="future-note">Vertical video export is a future feature—not a working button in this version.</p>
+        </section>
 
-        {rendered && (
-          <div className="result-card">
-            <div className="result-copy">
-              <span className="ready-chip">RENDERED</span>
-              <h3>{rendered.filename}</h3>
-              <p>{formatTime(rendered.buffer.duration)} · {(rendered.buffer.sampleRate / 1000).toFixed(1)} kHz · PCM 16-bit WAV · {rendered.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</p>
-              {rendered.guardGain < 1 && <small>Output reduced by {Math.round((1 - rendered.guardGain) * 100)}% to prevent PCM clipping.</small>}
-            </div>
-            <div className="result-actions">
-              <button className="button secondary" onClick={() => void playProcessed()}>{playing === 'processed' ? 'Stop processed' : 'Play processed'}</button>
-              <button className="button lime" onClick={download}>Download WAV ↓</button>
-            </div>
-          </div>
-        )}
-      </section>
+        <footer className="shell"><span className="wordmark small"><span className="mark" aria-hidden="true"><i /><i /><i /></span>AUDIO<span>FLIP</span></span><p>Local-first audio transformations for your own clips.</p></footer>
+      </main>
 
-      <section className="shell guide-section" aria-labelledby="guide-title">
-        <div className="section-heading">
-          <p className="eyebrow">HOW IT WORKS</p>
-          <h2 id="guide-title">From sound to screen capture.</h2>
-        </div>
-        <div className="steps">
-          <article><span>01</span><h3>Load your clip</h3><p>Use the original demo or an audio file you have rights to edit.</p></article>
-          <article><span>02</span><h3>Set the flip</h3><p>Trim first, pick a mode, and adjust only the controls that matter.</p></article>
-          <article><span>03</span><h3>Bring it to video</h3><p>Download WAV, then import it into your preferred video editor.</p></article>
-        </div>
-        <div className="two-up">
-          <aside className="info-card"><p className="eyebrow">GOOD FOR</p><h3>Before/after edits, mood changes, speed ramps, and low-end experiments.</h3><p>AudioFlip is a one-file editor—not a TikTok uploader or a finished vertical video maker.</p></aside>
-          <aside className="info-card rights"><p className="eyebrow">RIGHTS + PRIVACY</p><h3>Made on this device. Nothing uploaded.</h3><p>Only use audio you own or have permission to edit and publish. Effects do not remove copyright restrictions.</p><p>After download, follow the video platform’s format and music-rights rules.</p></aside>
-        </div>
-      </section>
-
-      <section className="shell pricing-section" aria-labelledby="pricing-title">
-        <div className="section-heading"><p className="eyebrow">PRE-LAUNCH PRICING</p><h2 id="pricing-title">Useful now. More later.</h2></div>
-        <div className="pricing-grid">
-          <article className="plan-card"><span className="plan-tag">LIVE TODAY</span><h3>Free</h3><p className="price">$0 <small>/ month</small></p><p>Current single-clip editor, local processing, and WAV download.</p><span className="included">Included in this MVP</span></article>
-          <article className="plan-card creator"><span className="plan-tag">PROPOSED · PRE-LAUNCH</span><h3>Creator</h3><p className="price">$4.99 <small>/ month</small></p><p>Future reusable preset library, batch processing, and vertical video export.</p><button className="text-button violet" onClick={() => setCreatorOpen(true)}>Creator plan coming soon →</button></article>
-        </div>
-        <p className="future-note">Vertical video export is a future feature—not a working button in this version.</p>
-      </section>
-
-      <footer className="shell"><span className="wordmark small"><span className="mark" aria-hidden="true"><i /><i /><i /></span>AUDIO<span>FLIP</span></span><p>Local-first audio transformations for your own clips.</p></footer>
-
-      {creatorOpen && (
-        <div className="modal-backdrop" role="presentation" onMouseDown={() => setCreatorOpen(false)}>
-          <section className="modal" role="dialog" aria-modal="true" aria-labelledby="creator-modal-title" onMouseDown={(event) => event.stopPropagation()}>
-            <button className="modal-close" aria-label="Close" onClick={() => setCreatorOpen(false)}>×</button>
-            <p className="eyebrow">CREATOR · PROPOSED</p>
-            <h2 id="creator-modal-title">Coming soon—not for sale today.</h2>
-            <p>Creator is a future $4.99/month idea for reusable presets, batch processing, and vertical video export. There is no checkout, account, card collection, or paywall in this MVP.</p>
-            <p className="modal-note">A future billing build would use server-created checkout sessions, verified payment webhooks, authenticated entitlements, server-only secrets, cancellation/account management, and clear recurring-price disclosure. Browser-only paid locks are not secure enforcement.</p>
-            <button className="button primary" onClick={() => setCreatorOpen(false)}>Got it</button>
-          </section>
-        </div>
-      )}
-    </main>
+      {creatorOpen && <CreatorModal onClose={closeCreatorModal} returnFocusRef={creatorTriggerRef} />}
+    </>
   );
 }

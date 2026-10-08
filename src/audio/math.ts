@@ -8,6 +8,7 @@ export function clamp(value: number, min: number, max: number): number {
 }
 
 export function validateTrim(trim: TrimRange, duration: number): string | null {
+  if (!Number.isFinite(duration) || duration <= 0) return 'The loaded clip has no usable duration.';
   if (!Number.isFinite(trim.start) || !Number.isFinite(trim.end)) {
     return 'Trim points must be valid numbers.';
   }
@@ -21,8 +22,9 @@ export function validateTrim(trim: TrimRange, duration: number): string | null {
 }
 
 export function outputDuration(trim: TrimRange, rate: number, reverbTail = 0): number {
-  if (!Number.isFinite(rate) || rate <= 0 || trim.end <= trim.start) return 0;
-  return Math.max(0, (trim.end - trim.start) / rate + Math.max(0, reverbTail));
+  if (!Number.isFinite(trim.start) || !Number.isFinite(trim.end) || !Number.isFinite(rate) || !Number.isFinite(reverbTail)) return 0;
+  if (rate <= 0 || trim.end <= trim.start || reverbTail < 0) return 0;
+  return Math.max(0, (trim.end - trim.start) / rate + reverbTail);
 }
 
 export function peakOf(source: WavSource): number {
@@ -39,6 +41,9 @@ export function peakOf(source: WavSource): number {
 }
 
 export function peakGuardGain(peak: number, ceiling = OUTPUT_CEILING): number {
+  if (!Number.isFinite(ceiling) || ceiling <= 0 || ceiling > 1) {
+    throw new Error('Peak protection ceiling must be between 0 and 1.');
+  }
   if (!Number.isFinite(peak) || peak <= 0 || peak <= ceiling) return 1;
   return ceiling / peak;
 }
@@ -46,6 +51,13 @@ export function peakGuardGain(peak: number, ceiling = OUTPUT_CEILING): number {
 export function safeSample(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return clamp(value, -1, 1);
+}
+
+export function formatAttenuationPercent(guardGain: number): string {
+  const attenuation = (1 - guardGain) * 100;
+  if (!Number.isFinite(attenuation) || attenuation <= 0) return '0%';
+  if (attenuation < 0.01) return 'less than 0.01%';
+  return `${attenuation.toFixed(2)}%`;
 }
 
 export function formatTime(seconds: number): string {

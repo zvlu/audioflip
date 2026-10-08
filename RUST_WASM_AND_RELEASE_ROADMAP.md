@@ -1,12 +1,12 @@
 # AudioFlip: Rust/WASM and public-release roadmap
 
-> **Status:** planning only. No Rust toolchain, accounts, database, Stripe integration, live keys, checkout, public release, or deployment was enabled while preparing this roadmap.
+> **Status:** planning only. Phase 2 explicitly selected core editor hardening and deferred Rust/WASM. No Rust crate, generated WASM asset, worker, accounts, database, Stripe integration, live keys, checkout, public release, or deployment is shipped.
 
 ## Current baseline
 
 AudioFlip is a Vite/React/TypeScript static web app. It processes audio in browser memory using Web Audio and `OfflineAudioContext`; the project has no server/database capability, no application login, no analytics, no payment code, and auto-publishing is off.
 
-A toolchain check in the current workspace found **no `rustc`, Cargo, rustup, wasm-pack, wasm-bindgen, or installed WASM target**. The existing TypeScript safety boundary is deliberately concentrated in `src/audio/math.ts`, while the browser graph in `src/audio/engine.ts` owns decoding, playback, rate conversion, reverb, filters, and offline render.
+The previous toolchain observation in this roadmap was a dated planning snapshot, not a current-environment guarantee. Phase 2 made no Rust/WASM attempt by scope choice; a future implementation pass must recheck `rustc`, Cargo, targets, and the binding tool from its own environment before acting. The shipped TypeScript safety boundary now spans `src/audio/math.ts`, `src/audio/validation.ts`, `src/audio/engine.ts`, and `src/audio/wav.ts`; the browser graph owns decoding, playback, rate conversion, reverb, filters, and offline render.
 
 ## 1. Rust/WASM: use it where it can actually help
 

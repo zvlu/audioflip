@@ -9,7 +9,7 @@ AudioFlip is a **mobile-first, browser-only** audio editor for making slowed + r
 Requirements: Node 22+ and pnpm 11+.
 
 ```bash
-pnpm install
+pnpm install --frozen-lockfile
 pnpm dev
 ```
 
@@ -43,29 +43,30 @@ Any playback-rate effect changes **pitch and duration together**. There is no in
 
 ## Limits and support
 
-- **Input limit:** 20 MB and 60 seconds after decoding.
+- **Input limit:** 20 MiB and 60 seconds after decoding. The size cap is checked by both the UI and decoder before decoding; a small compressed input can still expand in browser memory before its decoded duration is rejected.
 - **Formats:** WAV and MP3 are first-class choices. Other selected audio is accepted only if the active browser can decode it; extension alone is not trusted.
-- **Output:** genuine RIFF/WAVE with PCM 16-bit interleaved data. The offline renderer targets 44.1 kHz and falls back to the decoded source sample rate only if 44.1 kHz context creation fails. Mono input remains mono; multi-channel sources are sensibly rendered to stereo.
+- **Output:** genuine RIFF/WAVE with PCM 16-bit interleaved data. The offline renderer targets 44.1 kHz and falls back to the decoded source sample rate only if 44.1 kHz context creation fails and the bounded fallback allocation is safe. Mono input remains mono; non-mono input is rendered to stereo through the browser's Web Audio channel mixing.
 - **Browser requirements:** full functionality needs `AudioContext`, `OfflineAudioContext`, `decodeAudioData`, `AudioBuffer`, Blob download, and a user interaction that permits audio playback. Current desktop Chromium-like browsers are the primary preview target. Mobile Safari and audible device playback are not claimed as verified unless specifically recorded in the delivery note.
 - **Rights:** Only use audio you own or have permission to edit and publish. Effects do not remove copyright restrictions. Import the exported audio into a video editor and follow that platform’s format and music-rights rules. AudioFlip is not a direct TikTok uploader or ready-made TikTok video generator.
 
 ## Test coverage
 
-`tests/audio.test.ts` checks trim validation, rate-to-duration math, finite peak measurement/guard gain, 16-bit WAV RIFF/header/data length, mono safety, and stereo interleaving. Use `pnpm test` for the current recorded result; delivery notes include the actual command output for this workspace.
+`tests/audio.test.ts` checks trim validation, rate-to-duration math, finite peak measurement/guard gain, validated effect ranges, input/OfflineAudioContext allocation boundaries, 16-bit WAV RIFF/header/data length, mono safety, interleaving, signed quantization, and decoder size enforcement. `tests/creator-modal.test.tsx` covers dialog focus entry, Tab/Shift+Tab looping, Escape, background inerting, and restored trigger focus. `tests/app-lifecycle.test.tsx` covers reset source retention, rendered URL revocation on reset/clear, and a late decode ignored after Clear.
 
 The interface also exposes invalid/oversize/decode failure states and defensively handles silence, NaN samples, short clips, repeated rendering, invalid trim values, mono sources, and new uploads. The demo is original code-generated audio, and all four visual presets use different Web Audio graph settings.
 
-### Validation snapshot (2026-10-08)
+### Validation snapshot (2026-10-08, Phase 2 core hardening)
 
-- `pnpm typecheck`, `pnpm test`, and `pnpm build` passed; the test run has **6/6** passing assertions.
-- A private Chromium browser pass loaded the original demo; rendered Original, Slowed + reverb, Sped up, Nightcore-style, and Bass boost; and observed the expected distinct output filenames and rate-adjusted durations (10.0 s original, 13.7 s slowed/reverb, 8.0 s sped, 7.4 s nightcore, and 10.0 s bass).
-- The visible processed-playback control was exercised. The browser generated and downloaded `audioflip-sped-up.wav`; Python’s WAV decoder confirmed stereo, 44,100 Hz, 16-bit PCM, 352,800 frames / 8.0 seconds, and a bounded 32,112-sample peak.
-- Browser checks also covered unsupported decode feedback, early 20 MB rejection, short mono silence rendering, repeated rendering, preset-default restoration, and a drop attempt during rendering. The drop target reported busy and the final source/export remained correctly tied to the original demo.
-- Desktop and 375 px narrow-mobile full-page screenshots were reviewed for overflow and legibility. **Unverified:** subjective audible listening and current iOS Safari/Android-device playback; neither is claimed as passed.
+- `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, and `pnpm build` passed. The current Vitest run has **12/12** passing tests across three files.
+- A private Chromium pass rendered the original demo through Original, Slowed + reverb, Sped up, Nightcore-style, and Bass boost. Observed durations were 10.0 s, 13.7 s, 8.0 s, 7.4 s, and 10.0 s respectively. Processed playback started and stopped through the visible control.
+- Clearing immediately after a slowed render began left **No source loaded**, no rendered download, neutral effect selection, and a recoverable empty state. Reset retained the loaded source and returned to Original. A live dialog check confirmed focus entry, Tab looping, Escape close, background inerting, and trigger focus restoration.
+- Actual input-change events rejected empty, corrupt, oversize, and 61-second WAV fixtures; a valid WAV labeled `.mp3` decoded by content rather than extension; and a 96 kHz mono fixture rendered to 44.1 kHz PCM16 mono. The downloaded `audioflip-original.wav` independently decoded as 1 channel, 44,100 Hz, 16-bit PCM, 2,205 frames / 0.0500 seconds, with integer peak 8,192.
+- Full-page desktop, 375 px, and 320 px layouts plus the live dialog were inspected. The browser reported no audio-named network resource entries and empty local/session storage after local operations; this is a smoke observation, not a substitute for a production network/privacy audit.
+- **Unverified:** subjective audible listening, Firefox/WebKit-specific checks, and physical current iOS Safari/Android Chrome playback. No compatibility or sound-quality claim is made for those surfaces.
 
 ## Rust/WASM status
 
-**Rust/WASM is not used in this version.** The working TypeScript boundary is `src/audio/math.ts` for trim validation, rate-to-duration math, finite peak measurement, and peak-guard gain selection. A later Rust DSP module can replace those deterministic calculations only after it is compiled to WASM, imported into `src/audio/engine.ts`, and verified in the live pipeline. Reverb, filters, rate conversion, preview, and render graph should remain browser Web Audio responsibilities.
+**Rust/WASM is not used in this version.** Phase 2 deliberately delivered core editor hardening only; there is no Rust crate, generated WASM asset, worker, or runtime WASM path. TypeScript owns trim/rate validation, finite peak measurement, shared-channel gain, sample sanitation, and PCM encoding. A later Rust DSP module can replace bounded post-render PCM work only after it is compiled to WASM, imported into `src/audio/engine.ts`, and exercised in a real browser render. Reverb, filters, rate conversion, preview, decode, and render graph should remain browser Web Audio responsibilities.
 
 ## Deferred features and proposed billing
 

@@ -60,3 +60,12 @@ Vite will serve the static React client on the configured private preview port. 
 ## Material constraints
 
 The project will not use stock imagery, generated marketing visuals, copyrighted music, media downloaders, public deployment, paid plans, email capture, accounts, analytics, or a server. A browser with `AudioContext`, `OfflineAudioContext`, `decodeAudioData`, and Blob download support is required for full processing. Safari/mobile audible testing is only reported if it can be performed, not implied by screenshots.
+
+
+## Phase 2 core-hardening amendment
+
+**Accepted scope:** Core hardening only. Rust/WASM, workers, accounts, payment integration, deployment, batch/video/alternate export formats, and any expansion of the 20 MiB / 60-second limits remain deferred.
+
+The editor will keep its browser-local React/Web Audio architecture and visual language. Phase 2 adds a small portal-style accessible Creator modal component rather than a UI library, with focus entry, Tab/Shift+Tab containment, Escape/backdrop close, background inerting/scroll lock, and trigger-focus restoration. `App.tsx` will gain explicit clip clearing and job/playback identity guards so late decode/render completion cannot overwrite a clear, reset, newer source, or unmount.
+
+The decorative bar field will become a labeled playback-progress indicator, explicitly not a waveform. The Web Audio engine will validate source metadata, effect settings, trim/rate values, output duration, and offline allocation bounds at the render boundary; it will preserve TypeScript peak-derived shared-channel gain and PCM16 WAV output. The WAV encoder will reject unsafe metadata/allocation requests rather than silently coercing them. New deterministic tests cover validation, allocation/format safety, finite sample behavior, and keyboard modal focus behavior; browser checks will exercise the actual editor loop and cleanup behavior.

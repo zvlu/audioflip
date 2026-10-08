@@ -1,6 +1,6 @@
 # AudioFlip large-buffer DSP snippets
 
-> **Draft status:** These snippets are designed for the current AudioFlip source layout but are not compiled in this workspace. `rustc`, Cargo, wasm-bindgen, wasm-pack, and a WASM target are currently unavailable. Do not represent them as shipped Rust/WASM until the build and browser test steps at the end have passed.
+> **Draft status:** Phase 2 explicitly deferred Rust/WASM, so these snippets remain uncompiled design material and are not imported by AudioFlip. The earlier toolchain availability statement was a dated planning observation, not a current-environment assertion. Recheck the actual toolchain in a future bounded integration pass; do not represent these snippets as shipped Rust/WASM until reproducible build and browser-render evidence exists.
 
 The goal is to move **CPU-bound peak scanning and optional sample sanitation** off the UI thread for larger renders. Keep `decodeAudioData`, `OfflineAudioContext`, rate conversion, reverb, filters, playback, and Blob URL lifecycle in browser/TypeScript code.
 
