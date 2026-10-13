@@ -1,12 +1,12 @@
 # AudioFlip: Rust/WASM and public-release roadmap
 
-> **Status:** planning only. Phase 2 explicitly selected core editor hardening and deferred Rust/WASM. No Rust crate, generated WASM asset, worker, accounts, database, Stripe integration, live keys, checkout, public release, or deployment is shipped.
+> **Status:** Rust/WASM remains planning only. Phase 4 adds a shipped TypeScript module worker for bounded copied-buffer peak scanning with a mandatory main-thread fallback; it does **not** add a Rust crate, generated WASM asset, accounts, database, Stripe integration, live keys, checkout, or custom domain. A static Vercel release is being prepared separately and is not confirmed by this roadmap revision.
 
 ## Current baseline
 
 AudioFlip is a Vite/React/TypeScript static web app. It processes audio in browser memory using Web Audio and `OfflineAudioContext`; the project has no server/database capability, no application login, no analytics, no payment code, and auto-publishing is off.
 
-The previous toolchain observation in this roadmap was a dated planning snapshot, not a current-environment guarantee. A fresh active-Sandbox check on 2026-10-08 found `rustc`, Cargo, rustup, installed WASM targets, `wasm-pack`, `wasm-bindgen`, and `wasm-opt` all missing. No toolchain installation was attempted: no ready build path or technically enforceable per-run budget cap was available. The exact check, fallback decision, and next step are in `RUST_WASM_GATE_RECORD.md`. The shipped TypeScript safety boundary now spans `src/audio/math.ts`, `src/audio/validation.ts`, `src/audio/engine.ts`, and `src/audio/wav.ts`; the browser graph owns decoding, playback, rate conversion, reverb, filters, and offline render.
+The previous toolchain observation in this roadmap was a dated planning snapshot, not a current-environment guarantee. A fresh active-Sandbox check on 2026-10-08 found `rustc`, Cargo, rustup, installed WASM targets, `wasm-pack`, `wasm-bindgen`, and `wasm-opt` all missing. No toolchain installation was attempted: no ready build path or technically enforceable per-run budget cap was available. The exact check, fallback decision, and next step are in `RUST_WASM_GATE_RECORD.md`. The shipped TypeScript safety boundary now spans `src/audio/math.ts`, `src/audio/validation.ts`, `src/audio/peak-worker.ts`, `src/audio/peak-service.ts`, `src/audio/engine.ts`, and `src/audio/wav.ts`; the browser graph owns decoding, playback, rate conversion, reverb, filters, and offline render.
 
 ## 1. Rust/WASM: use it where it can actually help
 

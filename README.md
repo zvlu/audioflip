@@ -2,7 +2,7 @@
 
 AudioFlip is a **mobile-first, browser-local portfolio project** for turning one audio clip into slowed + reverb, sped-up, nightcore-style, bass-boosted, or original comparison versions—then exporting a WAV or a vertical visualizer video. It is a static React/Vite/TypeScript app: source audio stays in browser memory and is never uploaded.
 
-> Working name only; not trademark-cleared. This repository remains private and this pass does not publish or deploy the project.
+> Working name only; not trademark-cleared. The GitHub repository is public. A static Vercel deployment is being prepared, but no live Vercel URL is confirmed in this revision.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ pnpm test
 pnpm build
 ```
 
-`pnpm build` creates `dist/`, suitable for a conventional static Vercel or Netlify deployment. No deployment, domain, analytics, backend, account, or payment setup is included here.
+`pnpm build` creates `dist/`. `vercel.json` declares the same frozen-lockfile install, build command, and `dist` output for a static Vercel project. No custom domain, analytics, backend, account, or payment setup is included.
 
 ## Use it
 
@@ -64,7 +64,11 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 
 ## Tests and current evidence
 
-`tests/audio.test.ts` covers trim/rate math, effect validation, allocation limits, peak safety, decoder size protection, and RIFF/PCM16 WAV output. `tests/creator-modal.test.tsx` covers keyboard modal containment. `tests/app-lifecycle.test.tsx` covers source/result invalidation. `tests/video-export.test.ts` covers runtime MIME selection, title cleanup/truncation, share-caption text, short-video compatibility bounds, and 9:16 canvas sizing without attempting a real MediaRecorder session in Vitest.
+`tests/audio.test.ts` covers trim/rate math, effect validation, allocation limits, peak safety, decoder size protection, and RIFF/PCM16 WAV output. `tests/peak-service.test.ts` covers worker selection/transfer limits, detached copied channel buffers, valid worker parity, and malformed/post-error/unavailable-worker fallback. `tests/creator-modal.test.tsx` covers keyboard modal containment. `tests/app-lifecycle.test.tsx` covers source/result invalidation. `tests/video-export.test.ts` covers runtime MIME selection, title cleanup/truncation, share-caption text, short-video compatibility bounds, and 9:16 canvas sizing without attempting a real MediaRecorder session in Vitest.
+
+### Optional large-buffer peak worker
+
+For a rendered buffer of at least **1,000,000** samples and no more than **32 MiB** of temporary copied channel PCM, AudioFlip starts a Vite module worker to calculate the finite global peak and its shared guard gain. It copies each `Float32Array` before transfer, so the live `AudioBuffer` remains usable for preview, safe-buffer creation, and PCM encoding. Small buffers, a missing/failed/slow worker, malformed result, allocation/copy failure, or an over-budget transfer use the same mandatory main-thread `peakOf` + `peakGuardGain` safety path. This is a responsiveness measure, not a measured speedup claim, and it does not upload or persist audio.
 
 ### Phase 3 validation snapshot (2026-10-13)
 
@@ -75,9 +79,15 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 - The sandbox did not report file-sharing support, so the Web Share button was correctly hidden. The browser-click caption path showed **Copied caption**. Full-page 1280 px desktop and 375 px mobile layouts were captured and reviewed.
 - **Unverified:** physical-device audible playback, current iOS Safari/Android Chrome, Firefox/WebKit codec behavior, subjective sound quality, TikTok upload acceptance, and public-deployment social-crawler behavior.
 
+### Phase 4 worker validation snapshot (2026-10-13)
+
+- `pnpm typecheck`, `pnpm test`, and `pnpm build` passed with **19/19 tests**. The production bundle includes a separate `peak-worker-*.js` asset.
+- In sandbox Chromium, the 10-second stereo demo’s slowed + reverb render (about 13.7 seconds after rate/tail processing) crossed the worker threshold and loaded the `peak-worker.ts?worker_file&type=module` module. The render completed with a peak-guarded WAV result.
+- This confirms worker construction and the browser render path in one Chromium environment. It is **not** a benchmark, a mobile performance claim, or evidence that Worker APIs/codec behavior work on every browser.
+
 ## Rust/WASM status
 
-**Rust/WASM is not shipped.** It remains deferred for this pass. TypeScript owns trim/rate validation, finite peak measurement, shared-channel gain, sample sanitation, and PCM encoding; browser Web Audio owns decode, filters, reverb, playback, and offline rendering. The prior fresh toolchain gate and its exact blocker are documented in [RUST_WASM_GATE_RECORD.md](RUST_WASM_GATE_RECORD.md). Do not describe the draft snippets as compiled or executed Rust.
+**Rust/WASM is not shipped.** It remains deferred for this pass. TypeScript owns trim/rate validation, sample sanitation, PCM encoding, and the peak calculation through a main-thread path plus an optional copied-buffer module-worker fallback; browser Web Audio owns decode, filters, reverb, playback, and offline rendering. The prior fresh toolchain gate and its exact blocker are documented in [RUST_WASM_GATE_RECORD.md](RUST_WASM_GATE_RECORD.md). Do not describe the draft snippets as compiled or executed Rust.
 
 ## Roadmap
 

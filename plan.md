@@ -87,3 +87,25 @@ A fresh active-Sandbox check found no `rustc`, Cargo, rustup, installed WASM tar
 **Design continuation:** Preserve the existing dark charcoal, violet, and lime sound-lab look. The export canvas uses the same motion-language as the product—calm analyser bars, large effect name, small optional title, restrained time indicator, and `made with AudioFlip` footer—with `prefers-reduced-motion` respected in the page UI. The product remains touch-first: the result card groups WAV/video/post actions with clear disabled, progress, failure, and unsupported-browser states. Copy follows the direct, honest brand voice: “Make a clip worth posting,” never “post directly to TikTok.”
 
 **Files and static delivery:** Expected additions are `src/video/export.ts`, `tests/video-export.test.ts`, and `LICENSE`; expected edits are `src/App.tsx`, `src/styles.css`, `src/types.ts` only if a shared contract is warranted, `README.md`, `TODO.md`, and `index.html`. No large UI, recording, or media library will be added. Vite’s existing `pnpm build` remains a static `dist` output suitable for a conventional Vercel or Netlify static deployment, without deploying it here. Social metadata will use the existing durable logo URL for `og:image`; no canonical or `og:url` will be invented because no public origin is configured.
+
+
+## Phase 4 — worker peak fallback and Vercel release
+
+**Scope and deployment choice:** The user has authorized a public static release to bypass the temporary Preview hostname filter. Vercel is selected over Netlify because the current task already has an enabled Vercel connector and the source is the GitHub repository `zvlu/audioflip` on `main`. This remains a browser-only static site: no server, database, account, payment, analytics, raw-audio upload, or new secret is introduced. The build must remain `pnpm install --frozen-lockfile && pnpm build`, serving `dist`.
+
+**Worker hardening approach:** Implement a small, module-worker peak service at `src/audio/peak-worker.ts` and `src/audio/peak-service.ts`. The worker receives **copied**, transferable `Float32Array` channel buffers only—never an `AudioBuffer` backing store—then reports a finite peak and shared guard gain. `engine.ts` will await this service after `OfflineAudioContext` rendering and before safe-buffer generation. The existing TypeScript `peakOf` + `peakGuardGain` path remains the mandatory fallback for small buffers, missing/failed workers, allocation failure, malformed worker messages, errors, and timeouts; no failure can bypass peak guarding. The worker service keeps a single reusable worker, has bounded pending jobs, terminates/recreates it after a failure or timeout, transfers temporary copies, and never persists audio.
+
+**Memory and lifecycle constraints:** Use the worker only above a documented sample threshold, reject unsafe transfer byte estimates before copying, and fall back to the current main-thread scan if memory work cannot safely start. Main-thread safe-buffer creation and WAV encoding stay unchanged. The App’s existing work-version guards already discard late `renderEffect` results after clear/replacement/unmount; the worker service must settle (or fall back from) every promise so the editor cannot remain in a busy state.
+
+**Static Vercel delivery:** Add `vercel.json` declaring the Vite build command and `dist` output. Create or reuse a Vercel Git project linked to the existing `main` branch, relying on Vercel’s default deployment protection rather than weakening access controls. After the first successful production URL is known, add only accurate canonical/Open Graph URL metadata, commit it, and allow the connected Git production deployment to update. No domain purchase, custom domain, payment, or DNS change is in scope.
+
+**Project structure addition:**
+
+```text
+src/audio/
+  peak-worker.ts       Module-worker finite peak scan and typed message protocol
+  peak-service.ts      Threshold, copied-transfer, timeout, and TypeScript fallback orchestration
+vercel.json            Static Vite deployment declaration
+```
+
+**Validation and evidence:** Add deterministic coverage for worker-threshold/byte guards, copied channel transfer safety, malformed-result/failure fallback behavior, and finite shared gain. Build and test before every checkpoint. Validate the browser’s actual worker route where supported, then inspect the Vercel production deployment response, emitted static assets, and browser page load. Documentation will distinguish tested Chromium behavior from untested mobile/WebKit surfaces and record any unavailable worker capability honestly.

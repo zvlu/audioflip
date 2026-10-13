@@ -1,4 +1,5 @@
-import { outputDuration, peakGuardGain, peakOf, safeSample, validateTrim } from './math';
+import { outputDuration, safeSample, validateTrim } from './math';
+import { measurePeakWithFallback } from './peak-service';
 import { MAX_FILE_BYTES, WAV_TARGET_SAMPLE_RATE } from './types';
 import { renderOutputChannels, safeOfflineFrameLength, validateAudioBufferMetadata, validateEffectSettings } from './validation';
 import type { EffectId, EffectSettings, RenderedAudio, TrimRange } from './types';
@@ -99,8 +100,7 @@ export async function renderEffect(
 
   const renderedMetadataError = validateAudioBufferMetadata(rendered, null);
   if (renderedMetadataError) throw new Error(renderedMetadataError);
-  const peak = peakOf(rendered);
-  const guardGain = peakGuardGain(peak);
+  const { peak, guardGain } = await measurePeakWithFallback(rendered);
   const safeBuffer = makeSafeBuffer(rendered, guardGain);
 
   return {

@@ -1,6 +1,6 @@
 # AudioFlip large-buffer DSP snippets
 
-> **Draft status:** These snippets remain uncompiled design material and are not imported by AudioFlip. A fresh active-Sandbox gate on 2026-10-08 found `rustc`, Cargo, rustup, installed WASM targets, `wasm-pack`, `wasm-bindgen`, and `wasm-opt` all missing; no toolchain installation was attempted. See `RUST_WASM_GATE_RECORD.md` for the exact blocker and fallback decision. Do not represent these snippets as shipped Rust/WASM until reproducible build and browser-render evidence exists.
+> **Current status:** Phase 4 ships the TypeScript module-worker peak path in `src/audio/peak-worker.ts` and `src/audio/peak-service.ts`; it uses copied transferable channels above a 1,000,000-sample threshold and falls back to the existing main-thread peak guard on every worker/copy/timeout failure. The Rust/WASM portions below remain uncompiled design material. A fresh active-Sandbox gate on 2026-10-08 found `rustc`, Cargo, rustup, installed WASM targets, `wasm-pack`, `wasm-bindgen`, and `wasm-opt` all missing; no toolchain installation was attempted. See `RUST_WASM_GATE_RECORD.md` for the exact blocker. Do not represent the Rust/WASM snippets as shipped until reproducible build and browser-render evidence exists.
 
 The goal is to move **CPU-bound peak scanning and optional sample sanitation** off the UI thread for larger renders. Keep `decodeAudioData`, `OfflineAudioContext`, rate conversion, reverb, filters, playback, and Blob URL lifecycle in browser/TypeScript code.
 
@@ -9,7 +9,7 @@ The goal is to move **CPU-bound peak scanning and optional sample sanitation** o
 | Path | Best use | Copy/memory behavior | Current recommendation |
 | --- | --- | --- | --- |
 | TypeScript main thread | Short renders / compatibility fallback | No extra channel copies | Keep for small buffers and unsupported browsers |
-| TypeScript module worker | Long scans where UI responsiveness matters | Transfers copies of channel PCM; original `AudioBuffer` stays usable for preview | First performance experiment |
+| TypeScript module worker | Large scans where UI responsiveness matters | Transfers copied channel PCM; original `AudioBuffer` stays usable for preview | Shipped with 1,000,000-sample / 32 MiB guardrails and mandatory main-thread fallback |
 | Rust/WASM | Batch/custom DSP after profiling proves JavaScript scan/encode cost material | Copies each channel into WASM scratch memory once; Rust scans in WASM | Add only in a dedicated toolchain pass |
 
 The current 60-second, stereo, 44.1 kHz limit is about **5.29 million f32 samples / 21.2 MB** of source PCM. A worker or WASM route must avoid retaining source, clone, encoded result, and historical renders indefinitely.
