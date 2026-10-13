@@ -17,6 +17,14 @@ import { NEUTRAL_SETTINGS, settingsForEffect } from './audio/presets';
 import { encodePcm16Wav } from './audio/wav';
 import { MAX_DURATION_SECONDS, MAX_FILE_BYTES } from './audio/types';
 import type { EffectId, EffectSettings, TrimRange } from './audio/types';
+import {
+  VIDEO_DURATION_CAP_SECONDS,
+  getVideoExportSupport,
+  sanitizeVideoTitle,
+  startVerticalVideoExport,
+  titleFromFilename,
+  type VideoExportJob,
+} from './video/export';
 
 type Clip = {
   buffer: AudioBuffer;
@@ -30,6 +38,16 @@ type Rendered = {
   filename: string;
   peak: number;
   guardGain: number;
+};
+
+type ExportedVideo = {
+  blob: Blob;
+  url: string;
+  filename: string;
+  extension: 'mp4' | 'webm';
+  duration: number;
+  width: number;
+  height: number;
 };
 
 type PlaybackKind = 'original' | 'processed' | null;
@@ -51,6 +69,8 @@ export default function App() {
   const playbackRef = useRef<PlaybackHandle | null>(null);
   const progressTimerRef = useRef<number | null>(null);
   const renderedUrlRef = useRef<string | null>(null);
+  const videoUrlRef = useRef<string | null>(null);
+  const videoJobRef = useRef<VideoExportJob | null>(null);
   const workVersionRef = useRef(0);
   const playbackVersionRef = useRef(0);
   const mountedRef = useRef(false);
@@ -69,9 +89,15 @@ export default function App() {
   const [playing, setPlaying] = useState<PlaybackKind>(null);
   const [playProgress, setPlayProgress] = useState(0);
   const [creatorOpen, setCreatorOpen] = useState(false);
+  const [videoTitle, setVideoTitle] = useState('');
+  const [videoExport, setVideoExport] = useState<ExportedVideo | null>(null);
+  const [isVideoExporting, setIsVideoExporting] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoSupport, setVideoSupport] = useState(() => getVideoExportSupport());
 
   useEffect(() => {
     mountedRef.current = true;
+    setVideoSupport(getVideoExportSupport());
     return () => {
       mountedRef.current = false;
       workVersionRef.current += 1;
@@ -81,6 +107,10 @@ export default function App() {
       playbackRef.current = null;
       if (renderedUrlRef.current) URL.revokeObjectURL(renderedUrlRef.current);
       renderedUrlRef.current = null;
+      videoJobRef.current?.cancel();
+      videoJobRef.current = null;
+      if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+      videoUrlRef.current = null;
       const context = contextRef.current;
       contextRef.current = null;
       if (context && context.state !== 'closed') void context.close();
@@ -139,7 +169,20 @@ export default function App() {
     }, 40);
   }
 
+  function discardVideo(): void {
+    videoJobRef.current?.cancel();
+    videoJobRef.current = null;
+    if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+    videoUrlRef.current = null;
+    if (mountedRef.current) {
+      setVideoExport(null);
+      setIsVideoExporting(false);
+      setVideoProgress(0);
+    }
+  }
+
   function discardRender(): void {
+    discardVideo();
     if (renderedUrlRef.current) URL.revokeObjectURL(renderedUrlRef.current);
     renderedUrlRef.current = null;
     if (mountedRef.current) setRendered(null);
@@ -153,6 +196,7 @@ export default function App() {
   function startSourceWork(): number {
     const version = invalidateWork();
     stopPlayback();
+    discardVideo();
     setIsRendering(false);
     return version;
   }
@@ -163,6 +207,7 @@ export default function App() {
     setClip(nextClip);
     setTrim({ start: 0, end: nextClip.buffer.duration });
     setSettings(NEUTRAL_SETTINGS);
+    setVideoTitle(titleFromFilename(nextClip.name));
     setError(null);
     setNotice(`${nextClip.name} is ready. Pick a flip, trim it, then render.`);
   }
@@ -174,6 +219,7 @@ export default function App() {
     setClip(null);
     setTrim({ start: 0, end: 0 });
     setSettings(NEUTRAL_SETTINGS);
+    setVideoTitle('');
     setIsLoading(false);
     setIsRendering(false);
     setError(null);
@@ -320,6 +366,7 @@ export default function App() {
     }
 
     stopPlayback();
+    discardVideo();
     const version = invalidateWork();
     setIsRendering(true);
     setError(null);
@@ -374,15 +421,87 @@ export default function App() {
     }
   }
 
-  function download(): void {
-    if (!rendered) return;
+  function downloadFile(url: string, filename: string): void {
     const link = document.createElement('a');
-    link.href = rendered.url;
-    link.download = rendered.filename;
+    link.href = url;
+    link.download = filename;
     document.body.append(link);
     link.click();
     link.remove();
+  }
+
+  function download(): void {
+    if (!rendered) return;
+    downloadFile(rendered.url, rendered.filename);
     setNotice(`${rendered.filename} download started. Import the audio into your video editor, then follow that platform’s music and format rules.`);
+  }
+
+  async function exportVideo(): Promise<void> {
+    if (!rendered || isVideoExporting) return;
+    const support = getVideoExportSupport();
+    setVideoSupport(support);
+    if (!support.supported) {
+      setError(support.reason ?? 'Video export is not available in this browser.');
+      return;
+    }
+
+    stopPlayback();
+    const version = workVersionRef.current;
+    const effectName = effectCards.find((card) => card.id === settings.effect)?.name ?? 'Audio flip';
+    const title = sanitizeVideoTitle(videoTitle, titleFromFilename(clip?.name ?? 'AudioFlip'));
+    let job: VideoExportJob | null = null;
+    setError(null);
+    setIsVideoExporting(true);
+    setVideoProgress(0);
+    setNotice(`Recording a local 9:16 video from the first ${Math.min(Math.ceil(rendered.buffer.duration), VIDEO_DURATION_CAP_SECONDS)} seconds of your processed audio…`);
+
+    try {
+      const context = await activateAudio();
+      if (version !== workVersionRef.current || !mountedRef.current) return;
+      job = startVerticalVideoExport({
+        context,
+        buffer: rendered.buffer,
+        effectName,
+        title,
+        onProgress: (progress) => {
+          if (version === workVersionRef.current && mountedRef.current) setVideoProgress(progress);
+        },
+      });
+      videoJobRef.current = job;
+      const artifact = await job.promise;
+      if (version !== workVersionRef.current || !mountedRef.current) return;
+      if (videoUrlRef.current) URL.revokeObjectURL(videoUrlRef.current);
+      const url = URL.createObjectURL(artifact.blob);
+      const filename = `audioflip-${effectLabel(settings.effect)}.${artifact.extension}`;
+      videoUrlRef.current = url;
+      setVideoExport({ ...artifact, url, filename });
+      downloadFile(url, filename);
+      setNotice(`${filename} is ready as ${artifact.mimeType}. A local download was started; use the Post it steps below when ready.`);
+    } catch (reason) {
+      if (version === workVersionRef.current && mountedRef.current) {
+        const message = reason instanceof Error ? reason.message : 'Video export failed.';
+        if (/cancelled/i.test(message)) setNotice('Video export cancelled. No video file was saved.');
+        else {
+          setError(message);
+          setNotice('Video export did not create a file. Your WAV is still available.');
+        }
+      }
+    } finally {
+      if (videoJobRef.current === job) videoJobRef.current = null;
+      if (version === workVersionRef.current && mountedRef.current) setIsVideoExporting(false);
+    }
+  }
+
+  function cancelVideoExport(): void {
+    if (!videoJobRef.current) return;
+    setNotice('Cancelling local video export…');
+    videoJobRef.current.cancel();
+  }
+
+  function downloadVideo(): void {
+    if (!videoExport) return;
+    downloadFile(videoExport.url, videoExport.filename);
+    setNotice(`${videoExport.filename} download started. Open TikTok yourself and follow that platform’s music and format rules.`);
   }
 
   const closeCreatorModal = useCallback(() => setCreatorOpen(false), []);
@@ -561,6 +680,21 @@ export default function App() {
               <div className="result-actions">
                 <button className="button secondary" type="button" onClick={() => void playProcessed()}>{playing === 'processed' ? 'Stop processed' : 'Play processed'}</button>
                 <button className="button lime" type="button" onClick={download}>Download WAV ↓</button>
+                {videoSupport.supported && <button className="button violet-video" type="button" disabled={isVideoExporting} onClick={() => void exportVideo()}>{isVideoExporting ? `Recording ${Math.round(videoProgress * 100)}%` : 'Download video ↓'}</button>}
+              </div>
+              <div className="video-export-box">
+                {videoSupport.supported ? (
+                  <>
+                    <label className="video-title-label">
+                      <span>Title on video <b>Optional · 40 characters</b></span>
+                      <input value={videoTitle} maxLength={40} disabled={isVideoExporting} onChange={(event) => setVideoTitle(sanitizeVideoTitle(event.target.value, ''))} placeholder="AudioFlip" />
+                    </label>
+                    <p className="video-export-note">Local 9:16 visualizer + processed audio. {rendered.buffer.duration > VIDEO_DURATION_CAP_SECONDS ? `This export uses the first ${VIDEO_DURATION_CAP_SECONDS} seconds.` : 'It uses the full processed render.'}</p>
+                    {isVideoExporting && <div className="video-progress" role="progressbar" aria-label="Video export progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(videoProgress * 100)}><b style={{ transform: `scaleX(${videoProgress})` }} /></div>}
+                    {isVideoExporting && <button className="text-button danger-text" type="button" onClick={cancelVideoExport}>Cancel video export</button>}
+                  </>
+                ) : <p className="video-export-note unsupported-video">{videoSupport.reason ?? 'Video export is not available in this browser. Your WAV download still works.'}</p>}
+                {videoExport && <div className="video-ready"><span className="ready-chip">VIDEO READY</span><p>{videoExport.filename} · {videoExport.width}×{videoExport.height} · {formatTime(videoExport.duration)} · {videoExport.extension.toUpperCase()}</p><button className="text-button" type="button" onClick={downloadVideo}>Download {videoExport.extension.toUpperCase()} again ↓</button></div>}
               </div>
             </div>
           )}
@@ -574,10 +708,10 @@ export default function App() {
           <div className="steps">
             <article><span>01</span><h3>Load your clip</h3><p>Use the original demo or an audio file you have rights to edit.</p></article>
             <article><span>02</span><h3>Set the flip</h3><p>Trim first, pick a mode, and adjust only the controls that matter.</p></article>
-            <article><span>03</span><h3>Bring it to video</h3><p>Download WAV, then import it into your preferred video editor.</p></article>
+            <article><span>03</span><h3>Make the post</h3><p>Download WAV or a local vertical visualizer video, then use your own video platform flow.</p></article>
           </div>
           <div className="two-up">
-            <aside className="info-card"><p className="eyebrow">GOOD FOR</p><h3>Before/after edits, mood changes, speed ramps, and low-end experiments.</h3><p>AudioFlip is a one-file editor—not a TikTok uploader or a finished vertical video maker.</p></aside>
+            <aside className="info-card"><p className="eyebrow">GOOD FOR</p><h3>Before/after edits, mood changes, speed ramps, and low-end experiments.</h3><p>AudioFlip can create a local vertical visualizer file—not a TikTok uploader or a direct publishing tool.</p></aside>
             <aside className="info-card rights"><p className="eyebrow">RIGHTS + PRIVACY</p><h3>Made on this device. Nothing uploaded.</h3><p>Only use audio you own or have permission to edit and publish. Effects do not remove copyright restrictions.</p><p>After download, follow the video platform’s format and music-rights rules.</p></aside>
           </div>
         </section>
@@ -585,10 +719,10 @@ export default function App() {
         <section className="shell pricing-section" aria-labelledby="pricing-title">
           <div className="section-heading"><p className="eyebrow">PRE-LAUNCH PRICING</p><h2 id="pricing-title">Useful now. More later.</h2></div>
           <div className="pricing-grid">
-            <article className="plan-card"><span className="plan-tag">LIVE TODAY</span><h3>Free</h3><p className="price">$0 <small>/ month</small></p><p>Current single-clip editor, local processing, and WAV download.</p><span className="included">Included in this MVP</span></article>
-            <article className="plan-card creator"><span className="plan-tag">PROPOSED · PRE-LAUNCH</span><h3>Creator</h3><p className="price">$4.99 <small>/ month</small></p><p>Future reusable preset library, batch processing, and vertical video export.</p><button ref={creatorTriggerRef} className="text-button violet" type="button" onClick={() => setCreatorOpen(true)}>Creator plan coming soon →</button></article>
+            <article className="plan-card"><span className="plan-tag">LIVE TODAY</span><h3>Free</h3><p className="price">$0 <small>/ month</small></p><p>Current single-clip editor, local processing, WAV download, and browser-supported vertical video export.</p><span className="included">Included in this portfolio build</span></article>
+            <article className="plan-card creator"><span className="plan-tag">PROPOSED · PRE-LAUNCH</span><h3>Creator</h3><p className="price">$4.99 <small>/ month</small></p><p>Future reusable preset library and batch processing.</p><button ref={creatorTriggerRef} className="text-button violet" type="button" onClick={() => setCreatorOpen(true)}>Creator plan coming soon →</button></article>
           </div>
-          <p className="future-note">Vertical video export is a future feature—not a working button in this version.</p>
+          <p className="future-note">Video export creates a local file only. You choose whether and where to upload it.</p>
         </section>
 
         <footer className="shell"><span className="wordmark small"><span className="mark" aria-hidden="true"><i /><i /><i /></span>AUDIO<span>FLIP</span></span><p>Local-first audio transformations for your own clips.</p></footer>
