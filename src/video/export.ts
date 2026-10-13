@@ -2,7 +2,7 @@ export const VIDEO_DURATION_CAP_SECONDS = 60;
 export const MIN_VIDEO_DURATION_SECONDS = 1;
 
 export type VideoMimeOption = {
-  mimeType: 'video/mp4' | 'video/webm;codecs=vp9,opus' | 'video/webm';
+  mimeType: 'video/mp4;codecs=avc1.42E01E,mp4a.40.2' | 'video/mp4' | 'video/webm;codecs=vp9,opus' | 'video/webm;codecs=vp8,opus' | 'video/webm';
   extension: 'mp4' | 'webm';
 };
 
@@ -16,7 +16,7 @@ export type VideoExportSupport = {
 
 export type VideoExportArtifact = {
   blob: Blob;
-  mimeType: VideoMimeOption['mimeType'];
+  mimeType: string;
   extension: VideoMimeOption['extension'];
   duration: number;
   width: number;
@@ -41,13 +41,33 @@ type CaptureCanvas = HTMLCanvasElement & {
 };
 
 const VIDEO_MIME_OPTIONS: readonly VideoMimeOption[] = [
+  { mimeType: 'video/mp4;codecs=avc1.42E01E,mp4a.40.2', extension: 'mp4' },
   { mimeType: 'video/mp4', extension: 'mp4' },
   { mimeType: 'video/webm;codecs=vp9,opus', extension: 'webm' },
+  { mimeType: 'video/webm;codecs=vp8,opus', extension: 'webm' },
   { mimeType: 'video/webm', extension: 'webm' },
 ];
 
 export function selectVideoMimeType(isTypeSupported: (mimeType: string) => boolean): VideoMimeOption | null {
   return VIDEO_MIME_OPTIONS.find((option) => isTypeSupported(option.mimeType)) ?? null;
+}
+
+export type VideoExportResultCheck = {
+  usable: boolean;
+  mimeType?: string;
+  extension?: VideoMimeOption['extension'];
+  reason?: string;
+};
+
+/** Accept only a positive-size MP4/WebM Blob and derive its filename extension from the browser-reported Blob type. */
+export function inspectVideoExportResult(blob: Pick<Blob, 'size' | 'type'>): VideoExportResultCheck {
+  if (!Number.isFinite(blob.size) || blob.size <= 0) {
+    return { usable: false, reason: 'Video recording produced an empty file. Try Chrome, or download the audio instead.' };
+  }
+  const mimeType = blob.type.trim().toLowerCase();
+  if (mimeType.startsWith('video/mp4')) return { usable: true, mimeType, extension: 'mp4' };
+  if (mimeType.startsWith('video/webm')) return { usable: true, mimeType, extension: 'webm' };
+  return { usable: false, reason: 'Video recording returned an unknown file type. Try Chrome, or download the audio instead.' };
 }
 
 export function sanitizeVideoTitle(value: string, fallback = 'AudioFlip'): string {
@@ -79,20 +99,29 @@ export function chooseVerticalCanvasSize(profile: { hardwareConcurrency?: number
 function supportedMimeOptions(): VideoMimeOption[] {
   if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') return [];
   if (typeof window.MediaRecorder.isTypeSupported !== 'function') return [];
-  return VIDEO_MIME_OPTIONS.filter((option) => window.MediaRecorder.isTypeSupported(option.mimeType));
+  return VIDEO_MIME_OPTIONS.filter((option) => {
+    try {
+      return window.MediaRecorder.isTypeSupported(option.mimeType);
+    } catch {
+      return false;
+    }
+  });
 }
 
 export function getVideoExportSupport(): VideoExportSupport {
   if (typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
-    return { supported: false, reason: 'Video export is not available in this browser because MediaRecorder is missing.' };
+    return { supported: false, reason: "Video export isn't supported in this browser. Try Chrome, or download the audio instead." };
+  }
+  if (typeof HTMLCanvasElement === 'undefined') {
+    return { supported: false, reason: "Video export isn't supported because this browser cannot create a recording canvas. Try Chrome, or download the audio instead." };
   }
   const captureStream = (HTMLCanvasElement.prototype as CaptureCanvas).captureStream;
   if (typeof captureStream !== 'function') {
-    return { supported: false, reason: 'Video export is not available in this browser because canvas recording is missing.' };
+    return { supported: false, reason: "Video export isn't supported because canvas recording is missing. Try Chrome, or download the audio instead." };
   }
-  const option = selectVideoMimeType((mimeType) => window.MediaRecorder.isTypeSupported?.(mimeType) ?? false);
+  const option = supportedMimeOptions()[0] ?? null;
   if (!option) {
-    return { supported: false, reason: 'This browser does not report a supported MP4 or WebM recording format.' };
+    return { supported: false, reason: "Video export isn't supported by this browser's recorder. Try Chrome, or download the audio instead." };
   }
   return { supported: true, option };
 }
@@ -105,7 +134,7 @@ function createRecorder(stream: MediaStream): { recorder: MediaRecorder; option:
       // Try the next explicitly supported MIME type before reporting a real failure.
     }
   }
-  throw new Error('AudioFlip could not initialize a supported MP4 or WebM recorder in this browser.');
+  throw new Error("Video export couldn't initialize a supported MP4 or WebM recorder. Try Chrome, or download the audio instead.");
 }
 
 function safeDisconnect(node: AudioNode): void {
@@ -204,8 +233,8 @@ function drawVideoFrame(
 
 export function startVerticalVideoExport(options: VerticalVideoExportOptions): VideoExportJob {
   const support = getVideoExportSupport();
-  if (!support.supported) throw new Error(support.reason);
-  if (options.context.state !== 'running') throw new Error('Audio must be enabled before video export can start. Tap the button again.');
+  if (!support.supported) throw new Error(support.reason ?? "Video export isn't supported in this browser. Try Chrome, or download the audio instead.");
+  if (options.context.state !== 'running') throw new Error('Audio playback is blocked, so video export cannot start. Allow sound and tap Download video again, or download the audio instead.');
   if (!Number.isFinite(options.buffer.duration) || options.buffer.duration <= 0) throw new Error('The rendered audio has no usable duration for video export.');
 
   const canvas = document.createElement('canvas');
@@ -239,6 +268,11 @@ export function startVerticalVideoExport(options: VerticalVideoExportOptions): V
     ...canvasStream.getVideoTracks(),
     ...mediaDestination.stream.getAudioTracks(),
   ]);
+  if (canvasStream.getVideoTracks().length === 0 || mediaDestination.stream.getAudioTracks().length === 0) {
+    for (const track of recordingStream.getTracks()) track.stop();
+    void options.context.close().catch(() => undefined);
+    throw new Error("Video export couldn't capture both video and audio tracks. Try Chrome, or download the audio instead.");
+  }
   const { recorder, option } = createRecorder(recordingStream);
 
   let frameId: number | null = null;
@@ -263,6 +297,7 @@ export function startVerticalVideoExport(options: VerticalVideoExportOptions): V
       for (const track of recordingStream.getTracks()) track.stop();
       for (const track of canvasStream.getTracks()) track.stop();
       for (const track of mediaDestination.stream.getTracks()) track.stop();
+      if (options.context.state !== 'closed') void options.context.close().catch(() => undefined);
     };
 
     const settle = (artifact?: VideoExportArtifact, failure?: Error): void => {
@@ -289,18 +324,20 @@ export function startVerticalVideoExport(options: VerticalVideoExportOptions): V
     recorder.ondataavailable = (event) => {
       if (event.data.size > 0 && !cancelled) chunks.push(event.data);
     };
-    recorder.onerror = () => settle(undefined, new Error('Video recording stopped unexpectedly. Try a shorter clip or another browser.'));
+    recorder.onerror = () => settle(undefined, new Error('Video recording stopped unexpectedly. Try Chrome, a shorter clip, or download the audio instead.'));
     recorder.onstop = () => {
       if (cancelled) {
         settle(undefined, new Error('Video export cancelled.'));
         return;
       }
-      const blob = new Blob(chunks, { type: option.mimeType });
-      if (blob.size === 0) {
-        settle(undefined, new Error('Video recording produced no data. Try another supported browser.'));
+      const reportedMimeType = chunks.find((chunk): chunk is Blob => chunk instanceof Blob && Boolean(chunk.type))?.type || recorder.mimeType || option.mimeType;
+      const blob = new Blob(chunks, { type: reportedMimeType });
+      const inspection = inspectVideoExportResult(blob);
+      if (!inspection.usable || !inspection.extension || !inspection.mimeType) {
+        settle(undefined, new Error(inspection.reason ?? 'Video recording produced an unusable file. Download the audio instead.'));
         return;
       }
-      settle({ blob, mimeType: option.mimeType, extension: option.extension, duration, ...size });
+      settle({ blob, mimeType: inspection.mimeType, extension: inspection.extension, duration, ...size });
     };
     try {
       recorder.start(250);

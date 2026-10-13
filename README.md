@@ -47,11 +47,11 @@ Playback-rate changes **pitch and duration together**. AudioFlip does not provid
 
 After rendering, supported browsers expose **Download video** beside the WAV action. The export creates a dark-charcoal, violet/lime, 9:16 canvas with live analyser-driven bars, the selected effect, an optional 40-character title, and `made with AudioFlip`. It records in real time using native `canvas.captureStream`, `MediaStreamAudioDestinationNode`, and `MediaRecorder`.
 
-- The browser chooses the first reported supported format in this order: `video/mp4`, `video/webm;codecs=vp9,opus`, then `video/webm`.
-- The filename always matches the selected runtime container extension; AudioFlip never renames WebM as MP4.
+- The browser chooses the first reported supported format in this order: H.264/AAC MP4, generic MP4, VP9/Opus WebM, VP8/Opus WebM, then plain WebM.
+- The final Blob must be non-empty and report a recognized MP4 or WebM MIME type. Its filename extension is derived from that reported type; AudioFlip never offers an empty, unknown, or mislabeled video file.
 - Video is capped at 60 seconds. A slowed render longer than that uses its first 60 seconds. To avoid browser recorders omitting a visual track on extremely short clips, audio below one second receives a one-second visual hold while its audio remains unpadded.
 - Recording shows real elapsed progress and can be cancelled. The result remains a local file; Web Share appears only when the browser confirms it can share that file.
-- If `MediaRecorder` or canvas capture is missing, the action is hidden and the WAV path remains available.
+- If `MediaRecorder`, canvas capture, a compatible recorder type, or audio playback is unavailable, the action explains the limitation and keeps the WAV path available. Export cleanup stops tracks/nodes and closes the temporary export audio context; the editor recreates audio after the next user gesture.
 
 ## Limits and support
 

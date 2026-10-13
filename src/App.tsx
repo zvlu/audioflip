@@ -468,6 +468,7 @@ export default function App() {
     }
 
     stopPlayback();
+    discardVideo();
     const version = workVersionRef.current;
     const effectName = effectCards.find((card) => card.id === settings.effect)?.name ?? 'Audio flip';
     const title = sanitizeVideoTitle(videoTitle, titleFromFilename(clip?.name ?? 'AudioFlip'));

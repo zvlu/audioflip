@@ -122,3 +122,16 @@ vercel.json            Static Vite deployment declaration
 **Safe-buffer allocation fallback:** `engine.ts` will allocate the peak-guarded output using the global `AudioBuffer` constructor first, then fall back to `OfflineAudioContext.createBuffer` from the already-created offline context. Both allocations feed the exact same finite-sample / guard-gain copy loop. If neither allocator can produce a correctly shaped buffer, rendering fails truthfully and creates no preview/download; it never reuses or downloads unguarded source data.
 
 **Tests and documentation:** Add deterministic tests for pending-job abort cleanup, aborted signals before dispatch, fallback reuse after a later job, and global-to-context output-buffer allocator fallback. Update README/TODO to state that cancellation disposes pending worker work rather than claiming universal offline-render cancellation. The deployment URL and public static architecture remain unchanged.
+
+
+## Phase 6 — video compatibility, release assets, cleanup, and shortcuts
+
+**Scope:** Implement the four requested release steps in order without changing the browser-local architecture. Rust/WASM, backend services, accounts, payments, analytics, and any unrelated UI redesign remain excluded.
+
+**Step 1 — video export compatibility:** Extend the native recorder MIME chain to prefer H.264/AAC MP4 where the browser reports it, then generic MP4, VP9/Opus WebM, VP8/Opus WebM, and plain WebM. Keep MIME selection and result inspection pure. A final Blob is eligible only when it has positive size and a recognized MP4/WebM MIME whose derived extension is used for the artifact; otherwise clear the export state and show an actionable browser/audio fallback message. Recording cleanup stops all tracks/nodes and closes the export’s audio context so the editor recreates it on its next gesture. Add explicit TODO device-verification limits before docs move later in this pass.
+
+**Step 2 — shareable visual assets:** Create an exact 1200×630 PNG in `public/` using a deterministic branded static layout route because the required wordmark/tagline must be exact. Point Open Graph and Twitter image tags to the public Vercel URL. Create a sub-10-second README MP4 from a product screenshot and self-synthesized tone only, inspect with `ffprobe`, and store it under `docs/media/` with a GitHub-relative README reference. No copyrighted media or external stock assets are used.
+
+**Step 3 — documentation cleanup:** Move active planning/checklist/Rust/large-buffer documents into `docs/`, update all relative README/doc links, and retain the route manifest because it is an active Webdev requirement and public artifact. Root retains the application, configuration, README, LICENSE, source, public assets, and docs directory.
+
+**Step 4 — quick presets and end card:** Add two large hero-level action buttons that reuse the documented slowed and sped preset factories. If source audio exists, preset selection immediately begins its existing processed preview; otherwise it only selects the next render. Add pure end-card timing/layout helpers to the video export module. The visualizer will render a small, readable `AudioFlip · audioflip.vercel.app` watermark in the final second inside—never beyond—the 60-second cap. Unit tests cover preset behavior, end-card bounds, MIME inspection, and filenames.
