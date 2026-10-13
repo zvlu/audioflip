@@ -49,7 +49,7 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 
 - The browser chooses the first reported supported format in this order: `video/mp4`, `video/webm;codecs=vp9,opus`, then `video/webm`.
 - The filename always matches the selected runtime container extension; AudioFlip never renames WebM as MP4.
-- Video is capped at 60 seconds. A slowed render longer than that uses its first 60 seconds.
+- Video is capped at 60 seconds. A slowed render longer than that uses its first 60 seconds. To avoid browser recorders omitting a visual track on extremely short clips, audio below one second receives a one-second visual hold while its audio remains unpadded.
 - Recording shows real elapsed progress and can be cancelled. The result remains a local file; Web Share appears only when the browser confirms it can share that file.
 - If `MediaRecorder` or canvas capture is missing, the action is hidden and the WAV path remains available.
 
@@ -64,9 +64,16 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 
 ## Tests and current evidence
 
-`tests/audio.test.ts` covers trim/rate math, effect validation, allocation limits, peak safety, decoder size protection, and RIFF/PCM16 WAV output. `tests/creator-modal.test.tsx` covers keyboard modal containment. `tests/app-lifecycle.test.tsx` covers source/result invalidation. `tests/video-export.test.ts` covers runtime MIME selection, title cleanup/truncation, share-caption text, and 9:16 canvas sizing without attempting a real MediaRecorder session in Vitest.
+`tests/audio.test.ts` covers trim/rate math, effect validation, allocation limits, peak safety, decoder size protection, and RIFF/PCM16 WAV output. `tests/creator-modal.test.tsx` covers keyboard modal containment. `tests/app-lifecycle.test.tsx` covers source/result invalidation. `tests/video-export.test.ts` covers runtime MIME selection, title cleanup/truncation, share-caption text, short-video compatibility bounds, and 9:16 canvas sizing without attempting a real MediaRecorder session in Vitest.
 
-The final validation report should distinguish deterministic test results from actual browser recording/playback and from device/listening surfaces that remain unverified.
+### Phase 3 validation snapshot (2026-10-13)
+
+- `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, and `pnpm build` passed. Vitest reported **15/15 tests** across four files, and the static route manifest returned `{"routes":[{"path":"/","title":"AudioFlip"}]}`.
+- In the sandbox Chromium preview, the one-tap demo created the slowed + reverb result and exposed the video action. The Original, Slowed + reverb, Sped up, Nightcore-style, and Bass boost presets each rendered a result with the expected WAV filename.
+- A downloaded 0.25-second Original WAV independently decoded as stereo, 44,100 Hz, PCM16, 11,025 frames, with integer peak 32,112.
+- Native recording reported `video/mp4` in this browser. The repaired short-output file was a genuine 720×1280 MP4 container, 1.031 seconds and 50,846 bytes; `ffprobe` found VP9 video plus Opus stereo audio at 48 kHz. An extracted frame showed the intended title, effect label, violet/lime visualizer, progress bar, and `made with AudioFlip` footer. This is technical container/frame validation, not a subjective listening or platform-acceptance claim.
+- The sandbox did not report file-sharing support, so the Web Share button was correctly hidden. The browser-click caption path showed **Copied caption**. Full-page 1280 px desktop and 375 px mobile layouts were captured and reviewed.
+- **Unverified:** physical-device audible playback, current iOS Safari/Android Chrome, Firefox/WebKit codec behavior, subjective sound quality, TikTok upload acceptance, and public-deployment social-crawler behavior.
 
 ## Rust/WASM status
 

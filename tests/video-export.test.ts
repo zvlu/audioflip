@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  MIN_VIDEO_DURATION_SECONDS,
   VIDEO_DURATION_CAP_SECONDS,
   captionForEffect,
   chooseVerticalCanvasSize,
@@ -29,5 +30,6 @@ describe('vertical video export helpers', () => {
     expect(chooseVerticalCanvasSize({ hardwareConcurrency: 8, deviceMemory: 4 })).toEqual({ width: 720, height: 1280 });
     expect(captionForEffect('Slowed + reverb')).toBe('slowed + reverb version - made with AudioFlip');
     expect(VIDEO_DURATION_CAP_SECONDS).toBe(60);
+    expect(MIN_VIDEO_DURATION_SECONDS).toBe(1);
   });
 });

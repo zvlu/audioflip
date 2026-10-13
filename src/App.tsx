@@ -18,6 +18,7 @@ import { encodePcm16Wav } from './audio/wav';
 import { MAX_DURATION_SECONDS, MAX_FILE_BYTES } from './audio/types';
 import type { EffectId, EffectSettings, TrimRange } from './audio/types';
 import {
+  MIN_VIDEO_DURATION_SECONDS,
   VIDEO_DURATION_CAP_SECONDS,
   captionForEffect,
   getVideoExportSupport,
@@ -540,8 +541,19 @@ export default function App() {
   async function copyCaption(): Promise<void> {
     const caption = currentCaption();
     try {
-      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(caption);
-      else {
+      let copied = false;
+      if (navigator.clipboard?.writeText) {
+        try {
+          await Promise.race([
+            navigator.clipboard.writeText(caption),
+            new Promise<never>((_, reject) => window.setTimeout(() => reject(new Error('Clipboard request timed out.')), 750)),
+          ]);
+          copied = true;
+        } catch {
+          // A permission denial or a stalled clipboard request falls through to the local fallback.
+        }
+      }
+      if (!copied) {
         const textarea = document.createElement('textarea');
         textarea.value = caption;
         textarea.setAttribute('readonly', '');
@@ -554,6 +566,7 @@ export default function App() {
         if (!copied) throw new Error('Copy was not accepted by this browser.');
       }
       setCaptionCopied(true);
+      setError(null);
       setNotice('Caption copied. Edit it as needed before you post.');
     } catch {
       setError('Caption copying is blocked here. Select and copy the caption manually.');
@@ -760,7 +773,7 @@ export default function App() {
                       <span>Title on video <b>Optional · 40 characters</b></span>
                       <input value={videoTitle} maxLength={40} disabled={isVideoExporting} onChange={(event) => setVideoTitle(sanitizeVideoTitle(event.target.value, ''))} placeholder="AudioFlip" />
                     </label>
-                    <p className="video-export-note">Local 9:16 visualizer + processed audio. {rendered.buffer.duration > VIDEO_DURATION_CAP_SECONDS ? `This export uses the first ${VIDEO_DURATION_CAP_SECONDS} seconds.` : 'It uses the full processed render.'}</p>
+                    <p className="video-export-note">Local 9:16 visualizer + processed audio. {rendered.buffer.duration > VIDEO_DURATION_CAP_SECONDS ? `This export uses the first ${VIDEO_DURATION_CAP_SECONDS} seconds.` : rendered.buffer.duration < MIN_VIDEO_DURATION_SECONDS ? `Very short audio is held in a ${MIN_VIDEO_DURATION_SECONDS}-second visual for recorder compatibility.` : 'It uses the full processed render.'}</p>
                     {isVideoExporting && <div className="video-progress" role="progressbar" aria-label="Video export progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(videoProgress * 100)}><b style={{ transform: `scaleX(${videoProgress})` }} /></div>}
                     {isVideoExporting && <button className="text-button danger-text" type="button" onClick={cancelVideoExport}>Cancel video export</button>}
                   </>

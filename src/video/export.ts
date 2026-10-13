@@ -1,4 +1,5 @@
 export const VIDEO_DURATION_CAP_SECONDS = 60;
+export const MIN_VIDEO_DURATION_SECONDS = 1;
 
 export type VideoMimeOption = {
   mimeType: 'video/mp4' | 'video/webm;codecs=vp9,opus' | 'video/webm';
@@ -220,7 +221,10 @@ export function startVerticalVideoExport(options: VerticalVideoExportOptions): V
   const captureStream = (canvas as CaptureCanvas).captureStream;
   if (typeof captureStream !== 'function') throw new Error('Canvas recording is not available in this browser.');
 
-  const duration = Math.min(options.buffer.duration, VIDEO_DURATION_CAP_SECONDS);
+  const audioDuration = Math.min(options.buffer.duration, VIDEO_DURATION_CAP_SECONDS);
+  // Some browser recorders omit a video stream when an animated canvas stops in only a few frames.
+  // Keep a one-second visual hold for very short audio while leaving the audio itself unpadded.
+  const duration = Math.max(audioDuration, MIN_VIDEO_DURATION_SECONDS);
   const canvasStream = captureStream.call(canvas, 30);
   const mediaDestination = options.context.createMediaStreamDestination();
   const analyser = options.context.createAnalyser();
@@ -298,14 +302,12 @@ export function startVerticalVideoExport(options: VerticalVideoExportOptions): V
       }
       settle({ blob, mimeType: option.mimeType, extension: option.extension, duration, ...size });
     };
-    source.onended = () => requestStop();
-
     try {
       recorder.start(250);
       startedAt = performance.now();
       drawVideoFrame(drawingContext, canvas, analyser, options.effectName, options.title, 0, duration);
       frameId = window.requestAnimationFrame(draw);
-      source.start(0, 0, duration);
+      source.start(0, 0, audioDuration);
       stopTimer = window.setTimeout(requestStop, Math.ceil(duration * 1000) + 120);
     } catch (reason) {
       settle(undefined, reason instanceof Error ? reason : new Error('Video recording could not start.'));
