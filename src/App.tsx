@@ -13,7 +13,7 @@ import {
   type PlaybackHandle,
 } from './audio/engine';
 import { formatAttenuationPercent, formatTime, outputDuration, validateTrim } from './audio/math';
-import { NEUTRAL_SETTINGS, settingsForEffect } from './audio/presets';
+import { NEUTRAL_SETTINGS, QUICK_PRESETS, settingsForEffect, settingsForQuickPreset, type QuickPresetEffect } from './audio/presets';
 import { encodePcm16Wav } from './audio/wav';
 import { MAX_DURATION_SECONDS, MAX_FILE_BYTES } from './audio/types';
 import type { EffectId, EffectSettings, TrimRange } from './audio/types';
@@ -313,6 +313,21 @@ export default function App() {
     setNotice(`${effectCards.find((card) => card.id === effect)?.name ?? 'Effect'} selected. Render to hear the exact export.`);
   }
 
+  async function applyQuickPreset(effect: QuickPresetEffect): Promise<void> {
+    const preset = settingsForQuickPreset(effect);
+    if (!clip) {
+      chooseEffect(effect);
+      return;
+    }
+    const source = clip.buffer;
+    const trimSnapshot = { ...trim };
+    invalidateWork();
+    stopPlayback();
+    discardRender();
+    setSettings(preset);
+    await renderSnapshot(source, trimSnapshot, preset, `${effect === 'slowed' ? 'Slowed + reverb' : 'Sped up'} is rendered and previewing.`, true);
+  }
+
   function updateSetting(patch: Partial<EffectSettings>): void {
     invalidateWork();
     stopPlayback();
@@ -372,6 +387,7 @@ export default function App() {
     trimSnapshot: TrimRange,
     settingsSnapshot: EffectSettings,
     completionNotice?: string,
+    autoPreview = false,
   ): Promise<void> {
     const trimError = validateTrim(trimSnapshot, source.duration);
     if (trimError) {
@@ -405,6 +421,19 @@ export default function App() {
       setRendered(nextRendered);
       const guardNote = result.guardGain < 1 ? ' Peak guard reduced output safely.' : ' Peak guard found safe headroom.';
       setNotice(completionNotice ?? `Rendered ${formatTime(result.duration)} of 16-bit PCM WAV at ${(result.buffer.sampleRate / 1000).toFixed(1)} kHz.${guardNote}`);
+      if (autoPreview) {
+        try {
+          const context = await activateAudio();
+          if (controller.signal.aborted || version !== workVersionRef.current || !mountedRef.current) return;
+          const playbackVersion = ++playbackVersionRef.current;
+          playbackRef.current = playRenderedBuffer(context, nextRendered.buffer, () => finishPlayback(playbackVersion));
+          startProgress('processed', nextRendered.buffer.duration, playbackVersion);
+        } catch {
+          if (!controller.signal.aborted && version === workVersionRef.current && mountedRef.current) {
+            setNotice(`${completionNotice ?? 'Preset rendered.'} Tap Play processed if your browser did not permit automatic audio preview.`);
+          }
+        }
+      }
     } catch (reason) {
       if (!controller.signal.aborted && version === workVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'Rendering failed. Try a shorter clip or another browser-supported format.');
@@ -627,6 +656,13 @@ export default function App() {
               <span aria-hidden="true">＋</span> Choose audio
               <input type="file" accept="audio/wav,audio/mpeg,audio/*" onChange={onFileChange} disabled={isLoading || isRendering} />
             </label>
+          </div>
+          <div className="quick-presets" aria-label="One-tap audio presets">
+            {QUICK_PRESETS.map((preset) => (
+              <button key={preset.effect} className="quick-preset" type="button" disabled={isLoading || isRendering} onClick={() => void applyQuickPreset(preset.effect)}>
+                <span>ONE TAP</span>{preset.label}
+              </button>
+            ))}
           </div>
           <p className="limits">WAV and MP3 first · up to {fileMegabytes()} · up to {MAX_DURATION_SECONDS} seconds · processed on this device</p>
         </section>

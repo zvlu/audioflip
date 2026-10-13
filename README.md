@@ -33,7 +33,7 @@ pnpm build
 
 ## Use it
 
-1. Choose **Try the demo** for a locally generated slowed + reverb result, or select/drop an audio file.
+1. Choose **Try the demo** for a locally generated slowed + reverb result, or select/drop an audio file. With a source loaded, the prominent **Slowed + reverb** and **Sped up** buttons reuse the documented defaults, render, and begin the existing processed preview when the browser allows it.
 2. Trim the source, choose an effect, and render the exact PCM16 WAV result.
 3. Download the WAV or use **Download video** to record a local 9:16 visualizer video. After export, use the **Post it** checklist: download the file, open TikTok yourself, then upload under that platform’s own rights and format rules.
 
@@ -58,6 +58,7 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 - The browser chooses the first reported supported format in this order: H.264/AAC MP4, generic MP4, VP9/Opus WebM, VP8/Opus WebM, then plain WebM.
 - The final Blob must be non-empty and report a recognized MP4 or WebM MIME type. Its filename extension is derived from that reported type; AudioFlip never offers an empty, unknown, or mislabeled video file.
 - Video is capped at 60 seconds. A slowed render longer than that uses its first 60 seconds. To avoid browser recorders omitting a visual track on extremely short clips, audio below one second receives a one-second visual hold while its audio remains unpadded.
+- The final second includes a small in-frame `AudioFlip - audioflip.vercel.app` watermark; it never extends the capped recording duration.
 - Recording shows real elapsed progress and can be cancelled. The result remains a local file; Web Share appears only when the browser confirms it can share that file.
 - If `MediaRecorder`, canvas capture, a compatible recorder type, or audio playback is unavailable, the action explains the limitation and keeps the WAV path available. Export cleanup stops tracks/nodes and closes the temporary export audio context; the editor recreates audio after the next user gesture.
 

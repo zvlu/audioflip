@@ -55,7 +55,7 @@
 
 ## Phase 6 — harden, polish, and ship
 
-- [ ] **Video export compatibility and honest failure:** Select the first supported recorder MIME in this order: H.264/AAC MP4, generic MP4, VP9/Opus WebM, VP8/Opus WebM, then plain WebM. Handle missing `MediaRecorder`, missing canvas capture, unsupported types, recorder error, blocked audio context, and zero/unknown/mislabeled result data with actionable errors that direct people to a supported browser or WAV download. A video download is offered only for a positive-size recognized MP4/WebM Blob and its filename extension derives from the actual Blob MIME. Keep the 60-second cap, cancel/reset behavior, audio-context/track/node cleanup, URL revocation, and local-only privacy intact.
+- [x] **Video export compatibility and honest failure:** Select the first supported recorder MIME in this order: H.264/AAC MP4, generic MP4, VP9/Opus WebM, VP8/Opus WebM, then plain WebM. Handle missing `MediaRecorder`, missing canvas capture, unsupported types, recorder error, blocked audio context, and zero/unknown/mislabeled result data with actionable errors that direct people to a supported browser or WAV download. A video download is offered only for a positive-size recognized MP4/WebM Blob and its filename extension derives from the actual Blob MIME. Keep the 60-second cap, cancel/reset behavior, audio-context/track/node cleanup, URL revocation, and local-only privacy intact.
 
 - [x] **Unverified real-device surfaces:** Not verified on real devices: iOS Safari video export/save, Android Chrome video export/save, reliable real-time recording under heavy CPU load, and playback/upload acceptance in TikTok or Instagram. Sandbox Chromium checks and file/container inspection do not substitute for those device/platform tests.
 
@@ -63,6 +63,6 @@
 
 - [x] **Repository cleanup:** Move `plan.md`, `TODO.md`, `LARGE_BUFFER_DSP_SNIPPETS.md`, `RUST_WASM_AND_RELEASE_ROADMAP.md`, and `RUST_WASM_GATE_RECORD.md` under `docs/`, update README/internal links, and retain `public/manus-routes.json` because it remains an active route declaration. Keep root application/config/source files tidy and no obsolete root planning documents.
 
-- [ ] **Quick presets and end card:** Add prominent **Slowed + reverb** and **Sped up** actions that reuse existing defaults and begin existing preview when source audio is loaded. Add a readable `AudioFlip · audioflip.vercel.app` end-card/watermark wholly inside the video’s last second and 60-second cap. Keep preset/end-card timing/layout math pure and unit tested; do not rewrite DSP or claim direct TikTok upload.
+- [x] **Quick presets and end card:** Add prominent **Slowed + reverb** and **Sped up** actions that reuse existing defaults and begin existing preview when source audio is loaded. Add a readable `AudioFlip - audioflip.vercel.app` end-card/watermark wholly inside the video’s last second and 60-second cap. Keep preset/end-card timing/layout math pure and unit tested; do not rewrite DSP or claim direct TikTok upload.
 
 - [ ] **Stepwise validation and delivery:** Run the complete test suite and build before each step checkpoint, commit/push each step independently, verify the final public Vercel response once, and document the actual device limitations without claiming unperformed device/platform tests.

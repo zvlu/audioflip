@@ -8,6 +8,13 @@ export const NEUTRAL_SETTINGS: EffectSettings = {
   brightness: true,
 };
 
+export const QUICK_PRESETS = [
+  { effect: 'slowed', label: 'Slowed + reverb' },
+  { effect: 'sped', label: 'Sped up' },
+] as const;
+
+export type QuickPresetEffect = (typeof QUICK_PRESETS)[number]['effect'];
+
 /** Returns a complete preset so reselecting an effect restores its documented defaults. */
 export function settingsForEffect(effect: EffectId): EffectSettings {
   if (effect === 'slowed') {
@@ -23,4 +30,9 @@ export function settingsForEffect(effect: EffectId): EffectSettings {
     return { ...NEUTRAL_SETTINGS, effect, bassGain: 6 };
   }
   return { ...NEUTRAL_SETTINGS };
+}
+
+/** These one-tap choices intentionally reuse the same complete settings used by the editor cards. */
+export function settingsForQuickPreset(effect: QuickPresetEffect): EffectSettings {
+  return settingsForEffect(effect);
 }

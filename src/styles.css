@@ -36,6 +36,7 @@ h3 { margin-bottom: 7px; font-size: 1.22rem; letter-spacing: -.045em; }
 .lede, .section-heading > p, .render-card p, .info-card p, .plan-card > p, footer p, .control-copy { color: #a9a9b4; line-height: 1.52; }
 .lede { max-width: 550px; font-size: 1.05rem; }
 .hero-actions { justify-content: flex-start; position: relative; flex-wrap: wrap; }
+.quick-presets { position: relative; display: flex; flex-wrap: wrap; gap: 9px; margin-top: 12px; }.quick-preset { min-height: 42px; padding: 9px 13px; border: 1px solid rgba(195,255,54,.48); border-radius: 10px; background: rgba(195,255,54,.08); color: #f7f7fb; font-weight: 850; }.quick-preset span { margin-right: 7px; color: #c3ff36; font-size: .6rem; letter-spacing: .12em; }.quick-preset:not(:disabled):hover { border-color: #c3ff36; background: rgba(195,255,54,.16); }
 .button { min-height: 48px; padding: 12px 17px; border: 1px solid transparent; border-radius: 12px; color: #111115; font-weight: 800; text-decoration: none; transition: transform .16s ease, background .16s ease, border-color .16s ease; display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
 .button:not(:disabled):hover { transform: translateY(-2px); }
 .primary { background: #a78bfa; }.primary:not(:disabled):hover { background: #bca8ff; }

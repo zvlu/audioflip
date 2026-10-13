@@ -4,6 +4,8 @@ import {
   VIDEO_DURATION_CAP_SECONDS,
   captionForEffect,
   chooseVerticalCanvasSize,
+  endCardLayout,
+  endCardWindow,
   inspectVideoExportResult,
   sanitizeVideoTitle,
   selectVideoMimeType,
@@ -42,5 +44,17 @@ describe('vertical video export helpers', () => {
     expect(captionForEffect('Slowed + reverb')).toBe('slowed + reverb version - made with AudioFlip');
     expect(VIDEO_DURATION_CAP_SECONDS).toBe(60);
     expect(MIN_VIDEO_DURATION_SECONDS).toBe(1);
+  });
+
+  it('keeps the end-card inside the final second and the 60-second cap', () => {
+    expect(endCardWindow(0)).toBeNull();
+    expect(endCardWindow(0.4)).toEqual({ start: 0, end: 0.4 });
+    expect(endCardWindow(12.6)).toEqual({ start: 11.6, end: 12.6 });
+    expect(endCardWindow(94)).toEqual({ start: 59, end: 60 });
+    const layout = endCardLayout({ width: 720, height: 1280 });
+    expect(layout.x).toBeGreaterThanOrEqual(0);
+    expect(layout.y).toBeGreaterThanOrEqual(0);
+    expect(layout.x + layout.width).toBeLessThanOrEqual(720);
+    expect(layout.y + layout.height).toBeLessThanOrEqual(1280);
   });
 });

@@ -8,6 +8,10 @@ export type VideoMimeOption = {
 
 export type VerticalCanvasSize = { width: 720 | 1080; height: 1280 | 1920 };
 
+export type EndCardWindow = { start: number; end: number };
+
+export type EndCardLayout = { x: number; y: number; width: number; height: number; fontSize: number; padding: number };
+
 export type VideoExportSupport = {
   supported: boolean;
   option?: VideoMimeOption;
@@ -94,6 +98,28 @@ export function chooseVerticalCanvasSize(profile: { hardwareConcurrency?: number
   const lowerPower = (Number.isFinite(threads) && (threads ?? 0) > 0 && (threads ?? 0) <= 4)
     || (Number.isFinite(memory) && (memory ?? 0) > 0 && (memory ?? 0) <= 4);
   return lowerPower ? { width: 720, height: 1280 } : { width: 1080, height: 1920 };
+}
+
+/** Keeps the end-card wholly inside the export, including very short recorder-compatible holds. */
+export function endCardWindow(duration: number): EndCardWindow | null {
+  if (!Number.isFinite(duration) || duration <= 0) return null;
+  const end = Math.min(duration, VIDEO_DURATION_CAP_SECONDS);
+  return { start: Math.max(0, end - 1), end };
+}
+
+export function endCardLayout(size: { width: number; height: number }): EndCardLayout {
+  const scale = size.width / 720;
+  const padding = 18 * scale;
+  const height = 42 * scale;
+  const width = Math.min(size.width - padding * 2, 292 * scale);
+  return {
+    x: size.width - padding - width,
+    y: size.height - padding - height,
+    width,
+    height,
+    fontSize: 12 * scale,
+    padding,
+  };
 }
 
 function supportedMimeOptions(): VideoMimeOption[] {
@@ -229,6 +255,23 @@ function drawVideoFrame(
   context.fillStyle = colors.muted;
   context.font = `700 ${15 * scale}px system-ui, sans-serif`;
   context.fillText('made with AudioFlip', width / 2, height - 100 * scale);
+
+  const endCard = endCardWindow(duration);
+  if (endCard && elapsed >= endCard.start) {
+    const layout = endCardLayout({ width, height });
+    const reveal = Math.min(1, Math.max(0, (elapsed - endCard.start) / Math.max(0.001, endCard.end - endCard.start)));
+    context.globalAlpha = 0.72 + reveal * 0.28;
+    context.fillStyle = 'rgba(16,16,20,.86)';
+    context.fillRect(layout.x, layout.y, layout.width, layout.height);
+    context.strokeStyle = 'rgba(195,255,54,.76)';
+    context.lineWidth = Math.max(1, scale);
+    context.strokeRect(layout.x, layout.y, layout.width, layout.height);
+    context.textAlign = 'center';
+    context.fillStyle = colors.text;
+    context.font = `800 ${layout.fontSize}px system-ui, sans-serif`;
+    context.fillText('AudioFlip - audioflip.vercel.app', layout.x + layout.width / 2, layout.y + layout.height / 2 + layout.fontSize * 0.35, layout.width - layout.padding);
+    context.globalAlpha = 1;
+  }
 }
 
 export function startVerticalVideoExport(options: VerticalVideoExportOptions): VideoExportJob {
