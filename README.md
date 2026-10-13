@@ -103,6 +103,12 @@ Clear, replacement, trim/effect/settings change, reset, a new render, and unmoun
 - In sandbox Chromium, a deliberately delayed eligible peak-worker dispatch was cleared after the worker asset loaded. The app terminated the worker once, returned to **No source loaded**, and still had no processed result or processing state after the delayed post interval elapsed.
 - **Unverified:** forced cancellation of browser-native `OfflineAudioContext` itself (the API does not provide this guarantee), mobile/WebKit worker behavior, and measured performance/memory improvement. The implementation makes no claim about those surfaces.
 
+### Phase 6 release-hardening validation snapshot (2026-10-13)
+
+- `pnpm typecheck`, `pnpm test`, and `pnpm build` passed with **27/27 tests** across seven files. New pure-function coverage checks H.264/MP4/WebM fallback ordering, empty/unknown Blob rejection, quick-preset settings parity, and final-second end-card bounds.
+- In sandbox Chromium, the one-tap **Sped up** action rendered the 1.25× result and started processed preview. An 8-second, 720×1280 MP4 export reported VP9 video plus Opus audio, and a 7.3-second extracted frame visibly contained the in-frame `AudioFlip - audioflip.vercel.app` watermark.
+- **Not verified on real devices:** iOS Safari export/save, Android Chrome export/save, real-time recording under heavy CPU load, and playback/upload acceptance in TikTok or Instagram. Container/frame inspection and sandbox Chromium do not establish those device/platform behaviors.
+
 ## Rust/WASM status
 
 **Rust/WASM is not shipped.** It remains deferred for this pass. TypeScript owns trim/rate validation, sample sanitation, PCM encoding, and the peak calculation through a main-thread path plus an optional copied-buffer module-worker fallback; browser Web Audio owns decode, filters, reverb, playback, and offline rendering. The prior fresh toolchain gate and its exact blocker are documented in [docs/RUST_WASM_GATE_RECORD.md](docs/RUST_WASM_GATE_RECORD.md). Do not describe the draft snippets as compiled or executed Rust.

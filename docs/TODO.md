@@ -65,4 +65,4 @@
 
 - [x] **Quick presets and end card:** Add prominent **Slowed + reverb** and **Sped up** actions that reuse existing defaults and begin existing preview when source audio is loaded. Add a readable `AudioFlip - audioflip.vercel.app` end-card/watermark wholly inside the video’s last second and 60-second cap. Keep preset/end-card timing/layout math pure and unit tested; do not rewrite DSP or claim direct TikTok upload.
 
-- [ ] **Stepwise validation and delivery:** Run the complete test suite and build before each step checkpoint, commit/push each step independently, verify the final public Vercel response once, and document the actual device limitations without claiming unperformed device/platform tests.
+- [x] **Stepwise validation and delivery:** Run the complete test suite and build before each step checkpoint, commit/push each step independently, verify the final public Vercel response once, and document the actual device limitations without claiming unperformed device/platform tests.
