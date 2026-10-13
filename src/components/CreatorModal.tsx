@@ -99,7 +99,7 @@ export function CreatorModal({ onClose, returnFocusRef }: CreatorModalProps) {
         <button ref={closeButtonRef} className="modal-close" type="button" aria-label="Close Creator plan details" onClick={onClose}>×</button>
         <p className="eyebrow">CREATOR · PROPOSED</p>
         <h2 id="creator-modal-title">Coming soon—not for sale today.</h2>
-        <p id="creator-modal-description">Creator is a future $4.99/month idea for reusable presets, batch processing, and vertical video export. There is no checkout, account, card collection, or paywall in this MVP.</p>
+        <p id="creator-modal-description">Creator is a future $4.99/month idea for reusable presets and batch processing. Local vertical video export is already part of the free browser editor. There is no checkout, account, card collection, or paywall in this portfolio build.</p>
         <p className="modal-note">A future billing build would use server-created checkout sessions, verified payment webhooks, authenticated entitlements, server-only secrets, cancellation/account management, and clear recurring-price disclosure. Browser-only paid locks are not secure enforcement.</p>
         <button className="button primary" type="button" onClick={onClose}>Got it</button>
       </section>

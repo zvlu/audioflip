@@ -19,6 +19,7 @@ import { MAX_DURATION_SECONDS, MAX_FILE_BYTES } from './audio/types';
 import type { EffectId, EffectSettings, TrimRange } from './audio/types';
 import {
   VIDEO_DURATION_CAP_SECONDS,
+  captionForEffect,
   getVideoExportSupport,
   sanitizeVideoTitle,
   startVerticalVideoExport,
@@ -94,6 +95,7 @@ export default function App() {
   const [isVideoExporting, setIsVideoExporting] = useState(false);
   const [videoProgress, setVideoProgress] = useState(0);
   const [videoSupport, setVideoSupport] = useState(() => getVideoExportSupport());
+  const [captionCopied, setCaptionCopied] = useState(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -178,6 +180,7 @@ export default function App() {
       setVideoExport(null);
       setIsVideoExporting(false);
       setVideoProgress(0);
+      setCaptionCopied(false);
     }
   }
 
@@ -236,7 +239,11 @@ export default function App() {
       if (context.state === 'running') setAudioEnabled(true);
       const buffer = createDemoBuffer(context);
       if (version !== workVersionRef.current || !mountedRef.current) return;
+      const demoSettings = settingsForEffect('slowed');
       applyLoadedClip({ buffer, name: 'AudioFlip original demo', origin: 'demo' });
+      setSettings(demoSettings);
+      setIsLoading(false);
+      await renderSnapshot(buffer, { start: 0, end: buffer.duration }, demoSettings, 'The slowed + reverb demo is rendered. Your local video action is ready below.');
     } catch {
       if (version === workVersionRef.current && mountedRef.current) {
         setError('The local demo could not be prepared. Tap again or use a WAV/MP3 file.');
@@ -354,11 +361,12 @@ export default function App() {
     }
   }
 
-  async function render(): Promise<void> {
-    if (!clip) return;
-    const source = clip.buffer;
-    const trimSnapshot = { ...trim };
-    const settingsSnapshot = { ...settings };
+  async function renderSnapshot(
+    source: AudioBuffer,
+    trimSnapshot: TrimRange,
+    settingsSnapshot: EffectSettings,
+    completionNotice?: string,
+  ): Promise<void> {
     const trimError = validateTrim(trimSnapshot, source.duration);
     if (trimError) {
       setError(trimError);
@@ -388,7 +396,7 @@ export default function App() {
       };
       setRendered(nextRendered);
       const guardNote = result.guardGain < 1 ? ' Peak guard reduced output safely.' : ' Peak guard found safe headroom.';
-      setNotice(`Rendered ${formatTime(result.duration)} of 16-bit PCM WAV at ${(result.buffer.sampleRate / 1000).toFixed(1)} kHz.${guardNote}`);
+      setNotice(completionNotice ?? `Rendered ${formatTime(result.duration)} of 16-bit PCM WAV at ${(result.buffer.sampleRate / 1000).toFixed(1)} kHz.${guardNote}`);
     } catch (reason) {
       if (version === workVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'Rendering failed. Try a shorter clip or another browser-supported format.');
@@ -397,6 +405,11 @@ export default function App() {
     } finally {
       if (version === workVersionRef.current && mountedRef.current) setIsRendering(false);
     }
+  }
+
+  async function render(): Promise<void> {
+    if (!clip) return;
+    await renderSnapshot(clip.buffer, { ...trim }, { ...settings });
   }
 
   async function playProcessed(): Promise<void> {
@@ -502,6 +515,64 @@ export default function App() {
     if (!videoExport) return;
     downloadFile(videoExport.url, videoExport.filename);
     setNotice(`${videoExport.filename} download started. Open TikTok yourself and follow that platform’s music and format rules.`);
+  }
+
+  function currentCaption(): string {
+    const effectName = effectCards.find((card) => card.id === settings.effect)?.name ?? 'Audio flip';
+    return captionForEffect(effectName);
+  }
+
+  function exportedVideoFile(): File | null {
+    if (!videoExport) return null;
+    return new File([videoExport.blob], videoExport.filename, { type: videoExport.blob.type || `video/${videoExport.extension}` });
+  }
+
+  function canShareVideo(): boolean {
+    const file = exportedVideoFile();
+    if (!file || typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') return false;
+    try {
+      return navigator.canShare({ files: [file] });
+    } catch {
+      return false;
+    }
+  }
+
+  async function copyCaption(): Promise<void> {
+    const caption = currentCaption();
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(caption);
+      else {
+        const textarea = document.createElement('textarea');
+        textarea.value = caption;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.append(textarea);
+        textarea.select();
+        const copied = document.execCommand('copy');
+        textarea.remove();
+        if (!copied) throw new Error('Copy was not accepted by this browser.');
+      }
+      setCaptionCopied(true);
+      setNotice('Caption copied. Edit it as needed before you post.');
+    } catch {
+      setError('Caption copying is blocked here. Select and copy the caption manually.');
+    }
+  }
+
+  async function shareVideo(): Promise<void> {
+    const file = exportedVideoFile();
+    if (!file || !canShareVideo()) return;
+    try {
+      await navigator.share({ title: 'AudioFlip video', text: currentCaption(), files: [file] });
+      setNotice('Share sheet closed. Your video still stays local unless you choose a destination.');
+    } catch (reason) {
+      if (reason instanceof DOMException && reason.name === 'AbortError') {
+        setNotice('Share cancelled. Your local video file is still ready.');
+      } else {
+        setError('This browser could not share the video file. Download it instead.');
+      }
+    }
   }
 
   const closeCreatorModal = useCallback(() => setCreatorOpen(false), []);
@@ -694,7 +765,23 @@ export default function App() {
                     {isVideoExporting && <button className="text-button danger-text" type="button" onClick={cancelVideoExport}>Cancel video export</button>}
                   </>
                 ) : <p className="video-export-note unsupported-video">{videoSupport.reason ?? 'Video export is not available in this browser. Your WAV download still works.'}</p>}
-                {videoExport && <div className="video-ready"><span className="ready-chip">VIDEO READY</span><p>{videoExport.filename} · {videoExport.width}×{videoExport.height} · {formatTime(videoExport.duration)} · {videoExport.extension.toUpperCase()}</p><button className="text-button" type="button" onClick={downloadVideo}>Download {videoExport.extension.toUpperCase()} again ↓</button></div>}
+                {videoExport && (
+                  <div className="post-panel" aria-labelledby="post-title">
+                    <div className="post-panel-head"><span className="ready-chip">VIDEO READY</span><p>{videoExport.filename} · {videoExport.width}×{videoExport.height} · {formatTime(videoExport.duration)} · {videoExport.extension.toUpperCase()}</p></div>
+                    <h4 id="post-title">Post it</h4>
+                    <ol className="post-steps">
+                      <li><b>01</b><span>Download the local video file.</span></li>
+                      <li><b>02</b><span>Open TikTok yourself.</span></li>
+                      <li><b>03</b><span>Choose the file and follow that platform’s music-rights rules.</span></li>
+                    </ol>
+                    <div className="post-actions">
+                      <button className="text-button" type="button" onClick={downloadVideo}>Download {videoExport.extension.toUpperCase()} again ↓</button>
+                      <button className="text-button violet" type="button" onClick={() => void copyCaption()}>{captionCopied ? 'Copied caption' : 'Copy caption'}</button>
+                      {canShareVideo() && <button className="text-button" type="button" onClick={() => void shareVideo()}>Share video</button>}
+                    </div>
+                    <p className="caption-preview">{currentCaption()}</p>
+                  </div>
+                )}
               </div>
             </div>
           )}
