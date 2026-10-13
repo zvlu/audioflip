@@ -2,7 +2,7 @@
 
 AudioFlip is a **mobile-first, browser-local portfolio project** for turning one audio clip into slowed + reverb, sped-up, nightcore-style, bass-boosted, or original comparison versions—then exporting a WAV or a vertical visualizer video. It is a static React/Vite/TypeScript app: source audio stays in browser memory and is never uploaded.
 
-> Working name only; not trademark-cleared. The GitHub repository is public. A static Vercel deployment is being prepared, but no live Vercel URL is confirmed in this revision.
+> Working name only; not trademark-cleared. The GitHub repository is public and the static app is deployed at [audioflip.vercel.app](https://audioflip.vercel.app/). No custom domain, backend, accounts, payment flow, or analytics is included.
 
 ## Run locally
 
@@ -21,7 +21,7 @@ pnpm test
 pnpm build
 ```
 
-`pnpm build` creates `dist/`. `vercel.json` declares the same frozen-lockfile install, build command, and `dist` output for a static Vercel project. No custom domain, analytics, backend, account, or payment setup is included.
+`pnpm build` creates `dist/`. `vercel.json` declares the same frozen-lockfile install, build command, and `dist` output for the linked static Vercel project. The production alias is [audioflip.vercel.app](https://audioflip.vercel.app/); no custom domain, analytics, backend, account, or payment setup is included.
 
 ## Use it
 
@@ -84,6 +84,7 @@ For a rendered buffer of at least **1,000,000** samples and no more than **32 Mi
 - `pnpm typecheck`, `pnpm test`, and `pnpm build` passed with **19/19 tests**. The production bundle includes a separate `peak-worker-*.js` asset.
 - In sandbox Chromium, the 10-second stereo demo’s slowed + reverb render (about 13.7 seconds after rate/tail processing) crossed the worker threshold and loaded the `peak-worker.ts?worker_file&type=module` module. The render completed with a peak-guarded WAV result.
 - This confirms worker construction and the browser render path in one Chromium environment. It is **not** a benchmark, a mobile performance claim, or evidence that Worker APIs/codec behavior work on every browser.
+- Vercel production served `https://audioflip.vercel.app/` with an unauthenticated HTTP **200**, HTTPS/HSTS, the expected static HTML title, and Vite asset references. The static production URL loaded normally in the sandbox browser. This confirms the hosted page response, not universal network allowlisting or social-crawler parsing.
 
 ## Rust/WASM status
 
