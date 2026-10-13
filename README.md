@@ -104,7 +104,7 @@ Clear, replacement, trim/effect/settings change, reset, a new render, and unmoun
 
 ## Rust/WASM status
 
-**Rust/WASM is not shipped.** It remains deferred for this pass. TypeScript owns trim/rate validation, sample sanitation, PCM encoding, and the peak calculation through a main-thread path plus an optional copied-buffer module-worker fallback; browser Web Audio owns decode, filters, reverb, playback, and offline rendering. The prior fresh toolchain gate and its exact blocker are documented in [RUST_WASM_GATE_RECORD.md](RUST_WASM_GATE_RECORD.md). Do not describe the draft snippets as compiled or executed Rust.
+**Rust/WASM is not shipped.** It remains deferred for this pass. TypeScript owns trim/rate validation, sample sanitation, PCM encoding, and the peak calculation through a main-thread path plus an optional copied-buffer module-worker fallback; browser Web Audio owns decode, filters, reverb, playback, and offline rendering. The prior fresh toolchain gate and its exact blocker are documented in [docs/RUST_WASM_GATE_RECORD.md](docs/RUST_WASM_GATE_RECORD.md). Do not describe the draft snippets as compiled or executed Rust.
 
 ## Roadmap
 

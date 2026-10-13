@@ -35,12 +35,13 @@ tests/
   audio.test.ts           Deterministic utility and WAV-structure coverage
 public/
   manus-routes.json       Route declaration for the single page
-plan.md                   This build/design plan
-TODO.md                   Requirement-grounded delivery checklist
+docs/
+  plan.md                 This build/design plan
+  TODO.md                 Requirement-grounded delivery checklist
 README.md                 Setup, support, limits, and future boundary notes
 ```
 
-Vite will serve the static React client on the configured private preview port. Production build output is static but will not be published or deployed in this task.
+Vite serves the static React client on the configured preview port. Production build output is static and the current version is deployed to Vercel separately from this historical planning section.
 
 ## Design direction
 
@@ -86,7 +87,7 @@ A fresh active-Sandbox check found no `rustc`, Cargo, rustup, installed WASM tar
 
 **Design continuation:** Preserve the existing dark charcoal, violet, and lime sound-lab look. The export canvas uses the same motion-language as the product—calm analyser bars, large effect name, small optional title, restrained time indicator, and `made with AudioFlip` footer—with `prefers-reduced-motion` respected in the page UI. The product remains touch-first: the result card groups WAV/video/post actions with clear disabled, progress, failure, and unsupported-browser states. Copy follows the direct, honest brand voice: “Make a clip worth posting,” never “post directly to TikTok.”
 
-**Files and static delivery:** Expected additions are `src/video/export.ts`, `tests/video-export.test.ts`, and `LICENSE`; expected edits are `src/App.tsx`, `src/styles.css`, `src/types.ts` only if a shared contract is warranted, `README.md`, `TODO.md`, and `index.html`. No large UI, recording, or media library will be added. Vite’s existing `pnpm build` remains a static `dist` output suitable for a conventional Vercel or Netlify static deployment, without deploying it here. Social metadata will use the existing durable logo URL for `og:image`; no canonical or `og:url` will be invented because no public origin is configured.
+**Files and static delivery:** This historical phase added `src/video/export.ts`, `tests/video-export.test.ts`, and `LICENSE`, with focused edits to the editor, styles, README, metadata, and checklist. No large UI, recording, or media library was introduced. Vite’s `pnpm build` continues to create static `dist`; the current deployment uses the real Vercel origin and public PNG social card.
 
 
 ## Phase 4 — worker peak fallback and Vercel release

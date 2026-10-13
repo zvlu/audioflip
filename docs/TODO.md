@@ -61,7 +61,7 @@
 
 - [x] **Share assets and social metadata:** Add a real, under-300 KiB, 1200×630 PNG in `public/` with exact AudioFlip branding/tagline; use its absolute `audioflip.vercel.app` URL for Open Graph and Twitter images, replacing the Manus CDN SVG. Add an under-5 MiB, under-10-second GitHub-rendering README MP4 or GIF in `docs/media/`, sourced only from a local screenshot and synthesized tone/noise. Preserve public canonical/OG URLs and no copyrighted media.
 
-- [ ] **Repository cleanup:** Move `plan.md`, `TODO.md`, `LARGE_BUFFER_DSP_SNIPPETS.md`, `RUST_WASM_AND_RELEASE_ROADMAP.md`, and `RUST_WASM_GATE_RECORD.md` under `docs/`, update README/internal links, and retain `public/manus-routes.json` because it remains an active route declaration. Keep root application/config/source files tidy and no obsolete root planning documents.
+- [x] **Repository cleanup:** Move `plan.md`, `TODO.md`, `LARGE_BUFFER_DSP_SNIPPETS.md`, `RUST_WASM_AND_RELEASE_ROADMAP.md`, and `RUST_WASM_GATE_RECORD.md` under `docs/`, update README/internal links, and retain `public/manus-routes.json` because it remains an active route declaration. Keep root application/config/source files tidy and no obsolete root planning documents.
 
 - [ ] **Quick presets and end card:** Add prominent **Slowed + reverb** and **Sped up** actions that reuse existing defaults and begin existing preview when source audio is loaded. Add a readable `AudioFlip · audioflip.vercel.app` end-card/watermark wholly inside the video’s last second and 60-second cap. Keep preset/end-card timing/layout math pure and unit tested; do not rewrite DSP or claim direct TikTok upload.
 
