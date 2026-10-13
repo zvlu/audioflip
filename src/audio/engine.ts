@@ -8,6 +8,20 @@ const REVERB_TAIL_SECONDS = 1.2;
 
 type OfflineAudioContextConstructor = new (numberOfChannels: number, length: number, sampleRate: number) => OfflineAudioContext;
 
+export type AudioBufferAllocator = (numberOfChannels: number, length: number, sampleRate: number) => AudioBuffer;
+
+export type SafeBufferAllocators = {
+  primary?: AudioBufferAllocator;
+  fallback?: AudioBufferAllocator;
+};
+
+export class AudioRenderCancelledError extends Error {
+  constructor() {
+    super('Audio rendering was cancelled.');
+    this.name = 'AudioRenderCancelledError';
+  }
+}
+
 export interface PlaybackHandle {
   stop: () => void;
 }
@@ -65,7 +79,9 @@ export async function renderEffect(
   sourceBuffer: AudioBuffer,
   trim: TrimRange,
   settings: EffectSettings,
+  signal?: AbortSignal,
 ): Promise<RenderedAudio> {
+  throwIfRenderCancelled(signal);
   const metadataError = validateAudioBufferMetadata(sourceBuffer);
   if (metadataError) throw new Error(metadataError);
   const settingsError = validateEffectSettings(settings);
@@ -95,13 +111,19 @@ export async function renderEffect(
   try {
     rendered = await offline.startRendering();
   } catch {
+    throwIfRenderCancelled(signal);
     throw new Error('AudioFlip could not finish this local render. Try a shorter clip or another browser-supported source.');
   }
 
+  throwIfRenderCancelled(signal);
   const renderedMetadataError = validateAudioBufferMetadata(rendered, null);
   if (renderedMetadataError) throw new Error(renderedMetadataError);
-  const { peak, guardGain } = await measurePeakWithFallback(rendered);
-  const safeBuffer = makeSafeBuffer(rendered, guardGain);
+  const { peak, guardGain } = await measurePeakWithFallback(rendered, signal);
+  throwIfRenderCancelled(signal);
+  const safeBuffer = makeSafeBuffer(rendered, guardGain, {
+    fallback: (numberOfChannels, length, sampleRate) => offline.createBuffer(numberOfChannels, length, sampleRate),
+  });
+  throwIfRenderCancelled(signal);
 
   return {
     buffer: safeBuffer,
@@ -184,12 +206,36 @@ function makeImpulse(context: BaseAudioContext, duration: number): AudioBuffer {
   return impulse;
 }
 
-function makeSafeBuffer(source: AudioBuffer, gain: number): AudioBuffer {
-  const output = new AudioBuffer({
-    length: source.length,
-    numberOfChannels: source.numberOfChannels,
-    sampleRate: source.sampleRate,
-  });
+function throwIfRenderCancelled(signal?: AbortSignal): void {
+  if (signal?.aborted) throw new AudioRenderCancelledError();
+}
+
+export function makeSafeBuffer(source: AudioBuffer, gain: number, allocators: SafeBufferAllocators = {}): AudioBuffer {
+  if (!Number.isFinite(gain) || gain <= 0 || gain > 1) {
+    throw new Error('AudioFlip could not apply a safe output gain.');
+  }
+
+  const primary = allocators.primary ?? ((numberOfChannels, length, sampleRate) => new AudioBuffer({
+    length,
+    numberOfChannels,
+    sampleRate,
+  }));
+  const candidates = [primary, allocators.fallback].filter((allocator): allocator is AudioBufferAllocator => Boolean(allocator));
+  let output: AudioBuffer | null = null;
+  for (const allocate of candidates) {
+    try {
+      const candidate = allocate(source.numberOfChannels, source.length, source.sampleRate);
+      if (candidate.length !== source.length || candidate.numberOfChannels !== source.numberOfChannels || candidate.sampleRate !== source.sampleRate) {
+        continue;
+      }
+      output = candidate;
+      break;
+    } catch {
+      // A browser can reject the global constructor while an existing OfflineAudioContext can still allocate a buffer.
+    }
+  }
+  if (!output) throw new Error('AudioFlip could not allocate a safe output buffer. Try a shorter clip or another browser.');
+
   for (let channel = 0; channel < source.numberOfChannels; channel += 1) {
     const from = source.getChannelData(channel);
     const to = output.getChannelData(channel);

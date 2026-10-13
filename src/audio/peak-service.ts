@@ -11,6 +11,17 @@ export type PeakMeasurement = {
   mode: 'main-thread' | 'worker';
 };
 
+export class PeakMeasurementCancelledError extends Error {
+  constructor() {
+    super('Peak measurement was cancelled.');
+    this.name = 'PeakMeasurementCancelledError';
+  }
+}
+
+export function isPeakMeasurementCancelled(error: unknown): error is PeakMeasurementCancelledError {
+  return error instanceof PeakMeasurementCancelledError || (error instanceof Error && error.name === 'PeakMeasurementCancelledError');
+}
+
 type WorkerRequest = {
   kind: 'scan-peak';
   id: number;
@@ -45,7 +56,10 @@ type PendingJob = {
   id: number;
   source: WavSource;
   resolve: (result: PeakMeasurement) => void;
+  reject: (reason: unknown) => void;
   timer: ReturnType<typeof setTimeout>;
+  signal?: AbortSignal;
+  abortListener?: () => void;
 };
 
 export type PeakServiceOptions = {
@@ -131,7 +145,7 @@ export function createPeakMeasurementService(options: PeakServiceOptions = {}) {
   const workerFactory = options.workerFactory ?? defaultWorkerFactory;
   const thresholdSamples = options.thresholdSamples ?? WORKER_THRESHOLD_SAMPLES;
   const maxTransferBytes = options.maxTransferBytes ?? MAX_WORKER_TRANSFER_BYTES;
-  const timeoutMs = options.timeoutMs ?? WORKER_TIMEOUT_MS;
+  const timeoutMs = Math.max(1, options.timeoutMs ?? WORKER_TIMEOUT_MS);
   let worker: PeakWorkerLike | null = null;
   let pending: PendingJob | null = null;
   let nextId = 1;
@@ -147,14 +161,30 @@ export function createPeakMeasurementService(options: PeakServiceOptions = {}) {
   function clearPending(): PendingJob | null {
     const current = pending;
     pending = null;
-    if (current) clearTimeout(current.timer);
+    if (!current) return null;
+    clearTimeout(current.timer);
+    if (current.signal && current.abortListener) current.signal.removeEventListener('abort', current.abortListener);
     return current;
+  }
+
+  function resolveMainThreadFallback(current: PendingJob): void {
+    try {
+      current.resolve(mainThreadMeasurement(current.source));
+    } catch (reason) {
+      current.reject(reason);
+    }
   }
 
   function settleWithFallback(resetWorker: boolean): void {
     const current = clearPending();
     if (resetWorker) disposeWorker();
-    if (current) current.resolve(mainThreadMeasurement(current.source));
+    if (current) resolveMainThreadFallback(current);
+  }
+
+  function cancelPending(): void {
+    const current = clearPending();
+    disposeWorker();
+    if (current) current.reject(new PeakMeasurementCancelledError());
   }
 
   function ensureWorker(): PeakWorkerLike | null {
@@ -176,7 +206,8 @@ export function createPeakMeasurementService(options: PeakServiceOptions = {}) {
     return worker;
   }
 
-  async function measure(source: WavSource): Promise<PeakMeasurement> {
+  async function measure(source: WavSource, signal?: AbortSignal): Promise<PeakMeasurement> {
+    if (signal?.aborted) throw new PeakMeasurementCancelledError();
     if (!shouldUsePeakWorker(source, thresholdSamples, maxTransferBytes) || pending) {
       return mainThreadMeasurement(source);
     }
@@ -187,14 +218,28 @@ export function createPeakMeasurementService(options: PeakServiceOptions = {}) {
     } catch {
       return mainThreadMeasurement(source);
     }
+    if (signal?.aborted) throw new PeakMeasurementCancelledError();
 
     const currentWorker = ensureWorker();
     if (!currentWorker) return mainThreadMeasurement(source);
 
     const id = nextId++;
-    return new Promise<PeakMeasurement>((resolve) => {
-      const timer = setTimeout(() => settleWithFallback(true), timeoutMs);
-      pending = { id, source, resolve, timer };
+    return new Promise<PeakMeasurement>((resolve, reject) => {
+      let job: PendingJob;
+      const timer = setTimeout(() => {
+        if (pending === job) settleWithFallback(true);
+      }, timeoutMs);
+      const abortListener = () => {
+        if (pending === job) cancelPending();
+      };
+      job = { id, source, resolve, reject, timer, signal, abortListener };
+      pending = job;
+      signal?.addEventListener('abort', abortListener, { once: true });
+      if (signal?.aborted) {
+        cancelPending();
+        return;
+      }
+
       try {
         currentWorker.postMessage(
           { kind: 'scan-peak', id, ceiling: OUTPUT_CEILING, channels: copies },
@@ -209,7 +254,7 @@ export function createPeakMeasurementService(options: PeakServiceOptions = {}) {
   return {
     measure,
     dispose: () => {
-      settleWithFallback(true);
+      cancelPending();
       disposeWorker();
     },
   };
@@ -217,6 +262,6 @@ export function createPeakMeasurementService(options: PeakServiceOptions = {}) {
 
 const defaultPeakService = createPeakMeasurementService();
 
-export function measurePeakWithFallback(source: WavSource): Promise<PeakMeasurement> {
-  return defaultPeakService.measure(source);
+export function measurePeakWithFallback(source: WavSource, signal?: AbortSignal): Promise<PeakMeasurement> {
+  return defaultPeakService.measure(source, signal);
 }

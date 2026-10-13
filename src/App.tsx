@@ -73,6 +73,7 @@ export default function App() {
   const renderedUrlRef = useRef<string | null>(null);
   const videoUrlRef = useRef<string | null>(null);
   const videoJobRef = useRef<VideoExportJob | null>(null);
+  const renderAbortRef = useRef<AbortController | null>(null);
   const workVersionRef = useRef(0);
   const playbackVersionRef = useRef(0);
   const mountedRef = useRef(false);
@@ -103,6 +104,8 @@ export default function App() {
     setVideoSupport(getVideoExportSupport());
     return () => {
       mountedRef.current = false;
+      renderAbortRef.current?.abort();
+      renderAbortRef.current = null;
       workVersionRef.current += 1;
       playbackVersionRef.current += 1;
       clearTimer();
@@ -193,6 +196,8 @@ export default function App() {
   }
 
   function invalidateWork(): number {
+    renderAbortRef.current?.abort();
+    renderAbortRef.current = null;
     workVersionRef.current += 1;
     return workVersionRef.current;
   }
@@ -377,14 +382,16 @@ export default function App() {
     stopPlayback();
     discardVideo();
     const version = invalidateWork();
+    const controller = new AbortController();
+    renderAbortRef.current = controller;
     setIsRendering(true);
     setError(null);
     setNotice('Rendering locally on this device…');
     try {
-      const result = await renderEffect(source, trimSnapshot, settingsSnapshot);
-      if (version !== workVersionRef.current || !mountedRef.current) return;
+      const result = await renderEffect(source, trimSnapshot, settingsSnapshot, controller.signal);
+      if (controller.signal.aborted || version !== workVersionRef.current || !mountedRef.current) return;
       const blob = encodePcm16Wav(result.buffer);
-      if (version !== workVersionRef.current || !mountedRef.current) return;
+      if (controller.signal.aborted || version !== workVersionRef.current || !mountedRef.current) return;
       const url = URL.createObjectURL(blob);
       discardRender();
       renderedUrlRef.current = url;
@@ -399,11 +406,12 @@ export default function App() {
       const guardNote = result.guardGain < 1 ? ' Peak guard reduced output safely.' : ' Peak guard found safe headroom.';
       setNotice(completionNotice ?? `Rendered ${formatTime(result.duration)} of 16-bit PCM WAV at ${(result.buffer.sampleRate / 1000).toFixed(1)} kHz.${guardNote}`);
     } catch (reason) {
-      if (version === workVersionRef.current && mountedRef.current) {
+      if (!controller.signal.aborted && version === workVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'Rendering failed. Try a shorter clip or another browser-supported format.');
         setNotice('No download was created. Your original source is unchanged.');
       }
     } finally {
+      if (renderAbortRef.current === controller) renderAbortRef.current = null;
       if (version === workVersionRef.current && mountedRef.current) setIsRendering(false);
     }
   }

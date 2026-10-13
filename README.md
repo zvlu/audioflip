@@ -70,6 +70,8 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 
 For a rendered buffer of at least **1,000,000** samples and no more than **32 MiB** of temporary copied channel PCM, AudioFlip starts a Vite module worker to calculate the finite global peak and its shared guard gain. It copies each `Float32Array` before transfer, so the live `AudioBuffer` remains usable for preview, safe-buffer creation, and PCM encoding. Small buffers, a missing/failed/slow worker, malformed result, allocation/copy failure, or an over-budget transfer use the same mandatory main-thread `peakOf` + `peakGuardGain` safety path. This is a responsiveness measure, not a measured speedup claim, and it does not upload or persist audio.
 
+Clear, replacement, trim/effect/settings change, reset, a new render, and unmount abort an in-flight peak worker: its timer/listener and pending rendered-buffer reference are released and the worker is terminated without a stale main-thread fallback scan. Browser-native `OfflineAudioContext` rendering is not force-cancelled, but an invalidated render cannot continue into worker copying, guarded-buffer allocation, WAV/Blob creation, or stale editor state after it settles. The guarded buffer tries the global `AudioBuffer` constructor first and the existing offline context’s `createBuffer` second; if neither can allocate a correctly shaped output, no preview or download is created.
+
 ### Phase 3 validation snapshot (2026-10-13)
 
 - `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, and `pnpm build` passed. Vitest reported **15/15 tests** across four files, and the static route manifest returned `{"routes":[{"path":"/","title":"AudioFlip"}]}`.
@@ -85,6 +87,12 @@ For a rendered buffer of at least **1,000,000** samples and no more than **32 Mi
 - In sandbox Chromium, the 10-second stereo demo’s slowed + reverb render (about 13.7 seconds after rate/tail processing) crossed the worker threshold and loaded the `peak-worker.ts?worker_file&type=module` module. The render completed with a peak-guarded WAV result.
 - This confirms worker construction and the browser render path in one Chromium environment. It is **not** a benchmark, a mobile performance claim, or evidence that Worker APIs/codec behavior work on every browser.
 - Vercel production served `https://audioflip.vercel.app/` with an unauthenticated HTTP **200**, HTTPS/HSTS, the expected static HTML title, and Vite asset references. The static production URL loaded normally in the sandbox browser. This confirms the hosted page response, not universal network allowlisting or social-crawler parsing.
+
+### Phase 5 cancellation and allocation validation snapshot (2026-10-13)
+
+- `pnpm typecheck`, `pnpm test`, and `pnpm build` passed with **23/23 tests** across six files, including abort-before-dispatch, pending worker cancellation/recreation, and both safe-buffer allocator paths.
+- In sandbox Chromium, a deliberately delayed eligible peak-worker dispatch was cleared after the worker asset loaded. The app terminated the worker once, returned to **No source loaded**, and still had no processed result or processing state after the delayed post interval elapsed.
+- **Unverified:** forced cancellation of browser-native `OfflineAudioContext` itself (the API does not provide this guarantee), mobile/WebKit worker behavior, and measured performance/memory improvement. The implementation makes no claim about those surfaces.
 
 ## Rust/WASM status
 

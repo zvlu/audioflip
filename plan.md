@@ -109,3 +109,16 @@ vercel.json            Static Vite deployment declaration
 ```
 
 **Validation and evidence:** Add deterministic coverage for worker-threshold/byte guards, copied channel transfer safety, malformed-result/failure fallback behavior, and finite shared gain. Build and test before every checkpoint. Validate the browser’s actual worker route where supported, then inspect the Vercel production deployment response, emitted static assets, and browser page load. Documentation will distinguish tested Chromium behavior from untested mobile/WebKit surfaces and record any unavailable worker capability honestly.
+
+
+## Phase 5 — cancellable worker jobs and safe-buffer allocation fallback
+
+**Scope:** Close two remaining browser-memory/lifecycle gaps without adding dependencies, backends, storage, new effects, or Rust/WASM. The design and static Vercel delivery remain unchanged.
+
+**Cancellable peak-worker path:** Extend `peak-service.ts` with an optional `AbortSignal`. A pending worker scan will retain only the rendered `AudioBuffer` reference needed for its main-thread safety fallback. On explicit abort, it must remove its listener/timer, terminate the current worker, release the pending reference, and reject with a recognizable cancellation error instead of scanning/allocating a result that the UI has already discarded. Missing Worker APIs, construction/copy/postMessage errors, malformed replies, error events, and timeouts still resolve through the current main-thread peak guard. The default one-job service remains bounded and will recreate the worker on the next eligible job.
+
+**Render lifecycle integration:** `renderEffect` will accept the signal, check it before/after offline rendering and before safe-buffer creation, and pass it to peak measurement. `App.tsx` will retain one `AbortController` for the current render. Every existing `invalidateWork` transition—clear, source replacement, setting/trim/effect change, reset, new render, and unmount—will abort that controller first. Cancellation remains silent for stale work; real audio failures retain the existing helpful error state. Browser `OfflineAudioContext` itself is not force-cancelled; once it settles, no worker copy, safe buffer, Blob, or stale state update may be created.
+
+**Safe-buffer allocation fallback:** `engine.ts` will allocate the peak-guarded output using the global `AudioBuffer` constructor first, then fall back to `OfflineAudioContext.createBuffer` from the already-created offline context. Both allocations feed the exact same finite-sample / guard-gain copy loop. If neither allocator can produce a correctly shaped buffer, rendering fails truthfully and creates no preview/download; it never reuses or downloads unguarded source data.
+
+**Tests and documentation:** Add deterministic tests for pending-job abort cleanup, aborted signals before dispatch, fallback reuse after a later job, and global-to-context output-buffer allocator fallback. Update README/TODO to state that cancellation disposes pending worker work rather than claiming universal offline-render cancellation. The deployment URL and public static architecture remain unchanged.

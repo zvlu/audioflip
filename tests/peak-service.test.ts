@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { OUTPUT_CEILING } from '../src/audio/math';
 import {
   MAX_WORKER_TRANSFER_BYTES,
+  PeakMeasurementCancelledError,
   copyChannelsForPeakTransfer,
   createPeakMeasurementService,
   shouldUsePeakWorker,
@@ -127,5 +128,57 @@ describe('peak worker selection and copied transfer safety', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('rejects an already-aborted signal without creating or scanning with a worker', async () => {
+    const factory = vi.fn(() => null);
+    const service = createPeakMeasurementService({ thresholdSamples: 1, workerFactory: factory });
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(service.measure(sourceFrom([[0.4, -0.5]]), controller.signal)).rejects.toBeInstanceOf(PeakMeasurementCancelledError);
+    expect(factory).not.toHaveBeenCalled();
+  });
+
+  it('releases a cancelled worker job without a stale fallback scan and recreates a worker for the next render', async () => {
+    const firstTerminate = vi.fn();
+    const channel = new Float32Array([0.2, -1.2]);
+    const source: WavSource = {
+      numberOfChannels: 1,
+      length: channel.length,
+      sampleRate: 44_100,
+      getChannelData: vi.fn(() => channel),
+    };
+    let workerCount = 0;
+    const service = createPeakMeasurementService({
+      thresholdSamples: 1,
+      workerFactory: () => {
+        workerCount += 1;
+        if (workerCount === 1) {
+          return {
+            onmessage: null,
+            onerror: null,
+            postMessage: vi.fn(),
+            terminate: firstTerminate,
+          };
+        }
+        return fakeWorker((message, worker) => {
+          const request = message as { id: number };
+          worker.onmessage?.({
+            data: { kind: 'peak-result', id: request.id, peak: 1.2, guardGain: OUTPUT_CEILING / 1.2 },
+          } as MessageEvent);
+        });
+      },
+    });
+    const controller = new AbortController();
+    const cancelled = service.measure(source, controller.signal);
+    controller.abort();
+
+    await expect(cancelled).rejects.toBeInstanceOf(PeakMeasurementCancelledError);
+    expect(firstTerminate).toHaveBeenCalledTimes(1);
+    expect(source.getChannelData).toHaveBeenCalledTimes(1);
+
+    await expect(service.measure(sourceFrom([[0.1, -0.2]]))).resolves.toMatchObject({ mode: 'worker', peak: 1.2 });
+    expect(workerCount).toBe(2);
   });
 });
