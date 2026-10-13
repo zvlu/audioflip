@@ -1,5 +1,13 @@
 # AudioFlip
 
+![AudioFlip eight-second product demo](docs/media/audioflip-demo.gif)
+
+[Watch the short demo with a synthesized tone (MP4)](docs/media/audioflip-demo.mp4)
+
+![AudioFlip editor hero screen](docs/media/audioflip-editor.png)
+
+> The README demo uses this app screenshot and a self-synthesized sine tone only; it contains no third-party audio or stock media.
+
 AudioFlip is a **mobile-first, browser-local portfolio project** for turning one audio clip into slowed + reverb, sped-up, nightcore-style, bass-boosted, or original comparison versions—then exporting a WAV or a vertical visualizer video. It is a static React/Vite/TypeScript app: source audio stays in browser memory and is never uploaded.
 
 > Working name only; not trademark-cleared. The GitHub repository is public and the static app is deployed at [audioflip.vercel.app](https://audioflip.vercel.app/). No custom domain, backend, accounts, payment flow, or analytics is included.

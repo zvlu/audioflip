@@ -59,7 +59,7 @@
 
 - [x] **Unverified real-device surfaces:** Not verified on real devices: iOS Safari video export/save, Android Chrome video export/save, reliable real-time recording under heavy CPU load, and playback/upload acceptance in TikTok or Instagram. Sandbox Chromium checks and file/container inspection do not substitute for those device/platform tests.
 
-- [ ] **Share assets and social metadata:** Add a real, under-300 KiB, 1200×630 PNG in `public/` with exact AudioFlip branding/tagline; use its absolute `audioflip.vercel.app` URL for Open Graph and Twitter images, replacing the Manus CDN SVG. Add an under-5 MiB, under-10-second GitHub-rendering README MP4 or GIF in `docs/media/`, sourced only from a local screenshot and synthesized tone/noise. Preserve public canonical/OG URLs and no copyrighted media.
+- [x] **Share assets and social metadata:** Add a real, under-300 KiB, 1200×630 PNG in `public/` with exact AudioFlip branding/tagline; use its absolute `audioflip.vercel.app` URL for Open Graph and Twitter images, replacing the Manus CDN SVG. Add an under-5 MiB, under-10-second GitHub-rendering README MP4 or GIF in `docs/media/`, sourced only from a local screenshot and synthesized tone/noise. Preserve public canonical/OG URLs and no copyrighted media.
 
 - [ ] **Repository cleanup:** Move `plan.md`, `TODO.md`, `LARGE_BUFFER_DSP_SNIPPETS.md`, `RUST_WASM_AND_RELEASE_ROADMAP.md`, and `RUST_WASM_GATE_RECORD.md` under `docs/`, update README/internal links, and retain `public/manus-routes.json` because it remains an active route declaration. Keep root application/config/source files tidy and no obsolete root planning documents.
 
