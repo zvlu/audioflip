@@ -37,6 +37,8 @@ pnpm build
 2. Trim the source, choose an effect, and render the exact PCM16 WAV result.
 3. Download the WAV or use **Download video** to record a local 9:16 visualizer video. After export, use the **Post it** checklist: download the file, open TikTok yourself, then upload under that platform’s own rights and format rules.
 
+**Loop preview** is off by default and remains only in browser memory. Turn it on to repeat the exact selected trim in **Play original**, or the full peak-guarded output in **Play processed**, until you stop it. Changing the switch stops an active preview before the next playback. It does not alter, upload, persist, or bake a loop into WAV/video exports. Chosen loop points can depend on the source waveform and browser engine, so no click-free or gapless-loop guarantee is made.
+
 The app never posts to TikTok or any other platform. It does not use localStorage for raw audio, identity, or analytics; it retains only the active source, current render, and most recent export URLs, which are revoked when replaced or cleared.
 
 ## What the editor does
@@ -73,7 +75,7 @@ After rendering, supported browsers expose **Download video** beside the WAV act
 
 ## Tests and current evidence
 
-`tests/audio.test.ts` covers trim/rate math, effect validation, allocation limits, peak safety, decoder size protection, and RIFF/PCM16 WAV output. `tests/peak-service.test.ts` covers worker selection/transfer limits, detached copied channel buffers, valid worker parity, and malformed/post-error/unavailable-worker fallback. `tests/creator-modal.test.tsx` covers keyboard modal containment. `tests/app-lifecycle.test.tsx` covers source/result invalidation. `tests/video-export.test.ts` covers runtime MIME selection, title cleanup/truncation, share-caption text, short-video compatibility bounds, and 9:16 canvas sizing without attempting a real MediaRecorder session in Vitest.
+`tests/audio.test.ts` covers trim/rate math, effect validation, allocation limits, peak safety, decoder size protection, and RIFF/PCM16 WAV output. `tests/playback-loop.test.ts` covers one-pass playback plus exact trimmed-source and full-render loop boundaries. `tests/peak-service.test.ts` covers worker selection/transfer limits, detached copied channel buffers, valid worker parity, and malformed/post-error/unavailable-worker fallback. `tests/creator-modal.test.tsx` covers keyboard modal containment. `tests/app-lifecycle.test.tsx` covers source/result invalidation and routes the visible loop switch through original playback. `tests/video-export.test.ts` covers runtime MIME selection, title cleanup/truncation, share-caption text, short-video compatibility bounds, and 9:16 canvas sizing without attempting a real MediaRecorder session in Vitest.
 
 ### Optional large-buffer peak worker
 
@@ -108,6 +110,12 @@ Clear, replacement, trim/effect/settings change, reset, a new render, and unmoun
 - `pnpm typecheck`, `pnpm test`, and `pnpm build` passed with **27/27 tests** across seven files. New pure-function coverage checks H.264/MP4/WebM fallback ordering, empty/unknown Blob rejection, quick-preset settings parity, and final-second end-card bounds.
 - In sandbox Chromium, the one-tap **Sped up** action rendered the 1.25× result and started processed preview. An 8-second, 720×1280 MP4 export reported VP9 video plus Opus audio, and a 7.3-second extracted frame visibly contained the in-frame `AudioFlip - audioflip.vercel.app` watermark.
 - **Not verified on real devices:** iOS Safari export/save, Android Chrome export/save, real-time recording under heavy CPU load, and playback/upload acceptance in TikTok or Instagram. Container/frame inspection and sandbox Chromium do not establish those device/platform behaviors.
+
+### Phase 7 local preview-loop validation snapshot (2026-10-15)
+
+- `pnpm install --frozen-lockfile`, `pnpm typecheck`, `pnpm test`, and `pnpm build` passed. Vitest reported **31/31 tests** across eight files, including engine-level one-pass, selected-trim loop, full-render loop, and visible-control coverage.
+- In sandbox Chromium, the generated 10-second demo rendered successfully. Enabling **Loop preview** updated its pressed state and disclosure, and the original preview remained active after a 10.5-second wait—past its first pass. Turning the switch off stopped that active preview. Clearing the source reset and disabled the loop control and removed the rendered result.
+- This confirms the repeat/stop lifecycle in one Chromium environment. Subjective listening, exact click-free boundaries for arbitrary source material, Firefox/WebKit, and physical mobile-device behavior remain unverified.
 
 ## Rust/WASM status
 

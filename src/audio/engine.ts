@@ -26,6 +26,10 @@ export interface PlaybackHandle {
   stop: () => void;
 }
 
+export interface PlaybackOptions {
+  loop?: boolean;
+}
+
 export function getAudioContext(): AudioContext {
   const audioWindow = window as typeof window & { webkitAudioContext?: typeof AudioContext };
   const AudioContextConstructor = window.AudioContext ?? audioWindow.webkitAudioContext;
@@ -251,22 +255,32 @@ export function playSourceRange(
   buffer: AudioBuffer,
   trim: TrimRange,
   onEnded: () => void,
+  options: PlaybackOptions = {},
 ): PlaybackHandle {
   const metadataError = validateAudioBufferMetadata(buffer);
   if (metadataError) throw new Error(metadataError);
   const trimError = validateTrim(trim, buffer.duration);
   if (trimError) throw new Error(trimError);
-  return playBuffer(context, buffer, trim.start, trim.end - trim.start, onEnded);
+  return playBuffer(context, buffer, trim.start, trim.end - trim.start, onEnded, {
+    loop: options.loop,
+    loopStart: trim.start,
+    loopEnd: trim.end,
+  });
 }
 
 export function playRenderedBuffer(
   context: AudioContext,
   buffer: AudioBuffer,
   onEnded: () => void,
+  options: PlaybackOptions = {},
 ): PlaybackHandle {
   const metadataError = validateAudioBufferMetadata(buffer, null);
   if (metadataError) throw new Error(metadataError);
-  return playBuffer(context, buffer, 0, buffer.duration, onEnded);
+  return playBuffer(context, buffer, 0, buffer.duration, onEnded, {
+    loop: options.loop,
+    loopStart: 0,
+    loopEnd: buffer.duration,
+  });
 }
 
 function playBuffer(
@@ -275,14 +289,33 @@ function playBuffer(
   start: number,
   duration: number,
   onEnded: () => void,
+  options: PlaybackOptions & { loopStart?: number; loopEnd?: number } = {},
 ): PlaybackHandle {
   if (context.state !== 'running') throw new Error('Audio is not running yet. Tap again to enable playback.');
   if (!Number.isFinite(start) || !Number.isFinite(duration) || start < 0 || duration <= 0) {
     throw new Error('This preview range is not valid.');
   }
 
+  const loop = options.loop === true;
+  const loopStart = options.loopStart ?? start;
+  const loopEnd = options.loopEnd ?? start + duration;
+  if (loop && (
+    !Number.isFinite(loopStart)
+    || !Number.isFinite(loopEnd)
+    || loopStart < 0
+    || loopEnd <= loopStart
+    || loopEnd > buffer.duration
+  )) {
+    throw new Error('This preview loop range is not valid.');
+  }
+
   const source = context.createBufferSource();
   source.buffer = buffer;
+  source.loop = loop;
+  if (loop) {
+    source.loopStart = loopStart;
+    source.loopEnd = loopEnd;
+  }
   source.connect(context.destination);
   let stopped = false;
   let ended = false;
@@ -303,7 +336,8 @@ function playBuffer(
   };
 
   try {
-    source.start(0, start, duration);
+    if (loop) source.start(0, start);
+    else source.start(0, start, duration);
   } catch (reason) {
     dispose();
     throw reason;

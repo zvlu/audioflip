@@ -91,6 +91,7 @@ export default function App() {
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [playing, setPlaying] = useState<PlaybackKind>(null);
   const [playProgress, setPlayProgress] = useState(0);
+  const [loopPreview, setLoopPreview] = useState(false);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [videoTitle, setVideoTitle] = useState('');
   const [videoExport, setVideoExport] = useState<ExportedVideo | null>(null);
@@ -162,7 +163,7 @@ export default function App() {
     setPlayProgress(0);
   }
 
-  function startProgress(kind: Exclude<PlaybackKind, null>, duration: number, version: number): void {
+  function startProgress(kind: Exclude<PlaybackKind, null>, duration: number, version: number, loop: boolean): void {
     const started = performance.now();
     setPlaying(kind);
     setPlayProgress(0);
@@ -171,8 +172,18 @@ export default function App() {
         clearTimer();
         return;
       }
-      setPlayProgress(Math.min(1, (performance.now() - started) / (duration * 1000)));
+      const elapsedProgress = Math.max(0, (performance.now() - started) / (duration * 1000));
+      setPlayProgress(loop ? elapsedProgress % 1 : Math.min(1, elapsedProgress));
     }, 40);
+  }
+
+  function toggleLoopPreview(): void {
+    const nextLoopState = !loopPreview;
+    stopPlayback();
+    setLoopPreview(nextLoopState);
+    setNotice(nextLoopState
+      ? 'Loop preview is on. Original repeats the selected trim; processed preview repeats the full render until stopped.'
+      : 'Loop preview is off. Previews stop at the end.');
   }
 
   function discardVideo(): void {
@@ -216,6 +227,7 @@ export default function App() {
     setClip(nextClip);
     setTrim({ start: 0, end: nextClip.buffer.duration });
     setSettings(NEUTRAL_SETTINGS);
+    setLoopPreview(false);
     setVideoTitle(titleFromFilename(nextClip.name));
     setError(null);
     setNotice(`${nextClip.name} is ready. Pick a flip, trim it, then render.`);
@@ -228,6 +240,7 @@ export default function App() {
     setClip(null);
     setTrim({ start: 0, end: 0 });
     setSettings(NEUTRAL_SETTINGS);
+    setLoopPreview(false);
     setVideoTitle('');
     setIsLoading(false);
     setIsRendering(false);
@@ -373,8 +386,8 @@ export default function App() {
     try {
       const context = await activateAudio();
       if (playbackVersion !== playbackVersionRef.current || !mountedRef.current) return;
-      playbackRef.current = playSourceRange(context, source, trimSnapshot, () => finishPlayback(playbackVersion));
-      startProgress('original', trimSnapshot.end - trimSnapshot.start, playbackVersion);
+      playbackRef.current = playSourceRange(context, source, trimSnapshot, () => finishPlayback(playbackVersion), { loop: loopPreview });
+      startProgress('original', trimSnapshot.end - trimSnapshot.start, playbackVersion, loopPreview);
     } catch (reason) {
       if (playbackVersion === playbackVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'Original preview could not start.');
@@ -388,6 +401,7 @@ export default function App() {
     settingsSnapshot: EffectSettings,
     completionNotice?: string,
     autoPreview = false,
+    autoPreviewLoop = loopPreview,
   ): Promise<void> {
     const trimError = validateTrim(trimSnapshot, source.duration);
     if (trimError) {
@@ -426,8 +440,8 @@ export default function App() {
           const context = await activateAudio();
           if (controller.signal.aborted || version !== workVersionRef.current || !mountedRef.current) return;
           const playbackVersion = ++playbackVersionRef.current;
-          playbackRef.current = playRenderedBuffer(context, nextRendered.buffer, () => finishPlayback(playbackVersion));
-          startProgress('processed', nextRendered.buffer.duration, playbackVersion);
+          playbackRef.current = playRenderedBuffer(context, nextRendered.buffer, () => finishPlayback(playbackVersion), { loop: autoPreviewLoop });
+          startProgress('processed', nextRendered.buffer.duration, playbackVersion, autoPreviewLoop);
         } catch {
           if (!controller.signal.aborted && version === workVersionRef.current && mountedRef.current) {
             setNotice(`${completionNotice ?? 'Preset rendered.'} Tap Play processed if your browser did not permit automatic audio preview.`);
@@ -463,8 +477,8 @@ export default function App() {
     try {
       const context = await activateAudio();
       if (playbackVersion !== playbackVersionRef.current || !mountedRef.current) return;
-      playbackRef.current = playRenderedBuffer(context, renderedSnapshot, () => finishPlayback(playbackVersion));
-      startProgress('processed', renderedSnapshot.duration, playbackVersion);
+      playbackRef.current = playRenderedBuffer(context, renderedSnapshot, () => finishPlayback(playbackVersion), { loop: loopPreview });
+      startProgress('processed', renderedSnapshot.duration, playbackVersion, loopPreview);
     } catch (reason) {
       if (playbackVersion === playbackVersionRef.current && mountedRef.current) {
         setError(reason instanceof Error ? reason.message : 'Processed preview could not start.');
@@ -713,11 +727,16 @@ export default function App() {
                 <div className="playback-progress" role="progressbar" aria-label="Original preview playback progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={playing === 'original' ? progressPercent : 0}>
                   <b style={{ transform: `scaleX(${playing === 'original' ? playProgress : 0})` }} />
                 </div>
-                <span className="progress-caption">Playback progress only—not an analyzed waveform.</span>
+                <span className="progress-caption">{loopPreview ? 'Loop on: original repeats the selected trim; processed repeats the full render.' : 'Playback progress only—not an analyzed waveform.'}</span>
               </div>
-              <button className="play-button" type="button" disabled={!clip || isLoading || isRendering} onClick={() => void playOriginal()}>
-                {playing === 'original' ? 'Stop original' : 'Play original'}
-              </button>
+              <div className="preview-actions">
+                <button className="play-button" type="button" disabled={!clip || isLoading || isRendering} onClick={() => void playOriginal()}>
+                  {playing === 'original' ? 'Stop original' : 'Play original'}
+                </button>
+                <button className={`loop-button ${loopPreview ? 'active' : ''}`} type="button" disabled={!clip || isLoading || isRendering} aria-pressed={loopPreview} onClick={toggleLoopPreview}>
+                  Loop preview: {loopPreview ? 'on' : 'off'}
+                </button>
+              </div>
             </div>
 
             <div className="trim-controls">
@@ -805,6 +824,7 @@ export default function App() {
                 <h3>{rendered.filename}</h3>
                 <p>{formatTime(rendered.buffer.duration)} · {(rendered.buffer.sampleRate / 1000).toFixed(1)} kHz · PCM 16-bit WAV · {rendered.buffer.numberOfChannels === 1 ? 'Mono' : 'Stereo'}</p>
                 {rendered.guardGain < 1 && <small>Output reduced by {formatAttenuationPercent(rendered.guardGain)} to prevent PCM clipping.</small>}
+                {loopPreview && <small>Loop preview on: Play processed repeats the full rendered result until stopped.</small>}
               </div>
               <div className="result-actions">
                 <button className="button secondary" type="button" onClick={() => void playProcessed()}>{playing === 'processed' ? 'Stop processed' : 'Play processed'}</button>

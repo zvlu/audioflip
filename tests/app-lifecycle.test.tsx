@@ -7,6 +7,8 @@ const mockState = vi.hoisted(() => ({
   decode: vi.fn(),
   render: vi.fn(),
   stop: vi.fn(),
+  playSource: vi.fn(),
+  playRendered: vi.fn(),
   createUrl: vi.fn(() => 'blob:audioflip-test'),
   revokeUrl: vi.fn(),
 }));
@@ -19,8 +21,8 @@ vi.mock('../src/audio/engine', async (importOriginal) => {
     enableAudio: vi.fn(async () => undefined),
     decodeLocalFile: mockState.decode,
     renderEffect: mockState.render,
-    playSourceRange: vi.fn(() => ({ stop: mockState.stop })),
-    playRenderedBuffer: vi.fn(() => ({ stop: mockState.stop })),
+    playSourceRange: mockState.playSource,
+    playRenderedBuffer: mockState.playRendered,
   };
 });
 
@@ -79,6 +81,8 @@ beforeEach(() => {
   mockState.decode.mockReset();
   mockState.render.mockReset();
   mockState.stop.mockReset();
+  mockState.playSource.mockReset().mockReturnValue({ stop: mockState.stop });
+  mockState.playRendered.mockReset().mockReturnValue({ stop: mockState.stop });
   mockState.createUrl.mockClear();
   mockState.revokeUrl.mockClear();
   Object.assign(URL, { createObjectURL: mockState.createUrl, revokeObjectURL: mockState.revokeUrl });
@@ -129,6 +133,38 @@ describe('AudioFlip editor lifecycle', () => {
     await act(async () => { await Promise.resolve(); });
     expect(document.querySelector('.source-meta strong')?.textContent).toBe('No source loaded');
     expect(document.querySelector('.result-card')).toBeNull();
+
+    await act(async () => { root.unmount(); });
+    host.remove();
+  });
+
+  it('routes original playback through the visible local loop setting', async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    const source = fakeBuffer();
+    mockState.decode.mockResolvedValue(source);
+
+    await act(async () => { root.render(<App />); });
+    await upload(new File(['loop'], 'loop.wav', { type: 'audio/wav' }));
+    await waitFor(() => document.querySelector('.source-meta strong')?.textContent === 'loop.wav');
+
+    const loopButton = namedButton('Loop preview: off');
+    await act(async () => { loopButton.click(); });
+    expect(loopButton.getAttribute('aria-pressed')).toBe('true');
+
+    await act(async () => {
+      namedButton('Play original').click();
+      await Promise.resolve();
+    });
+    await waitFor(() => mockState.playSource.mock.calls.length === 1);
+    expect(mockState.playSource).toHaveBeenCalledWith(
+      expect.anything(),
+      source,
+      { start: 0, end: 1 },
+      expect.any(Function),
+      { loop: true },
+    );
 
     await act(async () => { root.unmount(); });
     host.remove();

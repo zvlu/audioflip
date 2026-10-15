@@ -66,3 +66,9 @@
 - [x] **Quick presets and end card:** Add prominent **Slowed + reverb** and **Sped up** actions that reuse existing defaults and begin existing preview when source audio is loaded. Add a readable `AudioFlip - audioflip.vercel.app` end-card/watermark wholly inside the video’s last second and 60-second cap. Keep preset/end-card timing/layout math pure and unit tested; do not rewrite DSP or claim direct TikTok upload.
 
 - [x] **Stepwise validation and delivery:** Run the complete test suite and build before each step checkpoint, commit/push each step independently, verify the final public Vercel response once, and document the actual device limitations without claiming unperformed device/platform tests.
+
+## Phase 7 — local preview looping
+
+- [x] **Explicit local preview loop:** Added an accessible, touch-sized `Loop preview` switch that remains in browser memory only. When active, **Play original** repeats the valid selected trim interval, and **Play processed** repeats the complete peak-guarded rendered buffer until the visitor stops it. The control does not bake loops into WAV/video exports, upload/persist audio, imply a waveform analysis, or promise click-free/gapless loop boundaries.
+
+- [x] **Loop lifecycle and evidence:** A loop-setting change stops an active preview before the next playback; clear, source replacement, trim/effect/settings change, reset, render, video export, and unmount stop looped sources and progress timers. Deterministic one-pass/trimmed-loop/processed-loop engine coverage plus UI coverage for the switch passed. Frozen install, typecheck, **31/31 tests**, production build, and focused Chromium loop/stop/clear checks passed before committing and pushing the completed revision to `main`.
